@@ -1,9 +1,9 @@
 import { Course, Testimonial, GalleryItem } from './types';
 
 // Let's use the actual file names for the beautiful generated assets
-export const HERO_IMAGE_URL = '/src/assets/images/falcon_hero_banner_1781780038589.jpg';
-export const SIMULATOR_IMAGE_URL = '/src/assets/images/driving_simulator_training_1781780058581.jpg';
-export const STUDENT_SUCCESS_IMAGE_URL = '/src/assets/images/student_success_license_1781780075476.jpg';
+export const HERO_IMAGE_URL = '/assets/images/falcon_hero_banner_1781780038589.jpg';
+export const SIMULATOR_IMAGE_URL = '/assets/images/driving_simulator_training_1781780058581.jpg';
+export const STUDENT_SUCCESS_IMAGE_URL = '/assets/images/student_success_license_1781780075476.jpg';
 
 export const COURSES: Course[] = [
   // Standard Programs
@@ -142,7 +142,7 @@ export const TESTIMONIALS: Testimonial[] = [
     name: "Chinedu Okafor",
     role: "Wuye Resident",
     rating: 5,
-    comment: "I was extremely nervous, especially about Wuye roundabouts, but Falcon's virtual simulator training helped ease my fears. The instructors are patient, polite, and absolute professionals. Highly recommended!",
+    comment: "I was extremely nervous, especially about Wuye roundabouts, but Falcon's virtual simulator training helped ease my fears. The instructors are patient, polite, and absolute professio[...]",
     avatar: "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=150&q=80",
     date: "May 2026"
   },
@@ -151,7 +151,7 @@ export const TESTIMONIALS: Testimonial[] = [
     name: "Aisha Bello",
     role: "Undergraduate, UniAbuja",
     rating: 5,
-    comment: "Superb service! I did the 2-week course with learners permit and 5-year license. No stress at all, Falcon handled the FRSC testing registration and paperwork perfectly. Best driving school in Abuja!",
+    comment: "Superb service! I did the 2-week course with learners permit and 5-year license. No stress at all, Falcon handled the FRSC testing registration and paperwork perfectly. Best driving[...]",
     avatar: "https://images.unsplash.com/photo-1531123897727-8f129e1688ce?auto=format&fit=crop&w=150&q=80",
     date: "April 2026"
   },
@@ -160,7 +160,7 @@ export const TESTIMONIALS: Testimonial[] = [
     name: "Tunde Adelaja",
     role: "Corporate Executive",
     rating: 5,
-    comment: "I enrolled my wife for their Home & Office Special Training. They literally picked her up from her workspace in the mornings and dropped her back. Perfect patience. Her lane and parking controls are spot-on now.",
+    comment: "I enrolled my wife for their Home & Office Special Training. They literally picked her up from her workspace in the mornings and dropped her back. Perfect patience. Her lane and par[...]",
     avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&q=80",
     date: "June 2026"
   },
@@ -225,14 +225,14 @@ export const FAQS = [
   },
   {
     q: "How does the virtual driving simulation help beginners?",
-    a: "It provides a 100% safe, anxiety-free platform to learn basic operations - steering, clutch-biting, gear shifts, and lane positioning - before you touch live Abuja traffic. It is widely praised by nervous drivers!"
+    a: "It provides a 100% safe, anxiety-free platform to learn basic operations - steering, clutch-biting, gear shifts, and lane positioning - before you touch live Abuja traffic. It is widely p[...]"
   },
   {
     q: "Do you guarantee that I will get an official driver's license?",
-    a: "Our licensing programs are fully integrated with the FRSC (Federal Road Safety Corps) and VIO (Vehicle Inspection Office). We prepare you fully, guide your official testing, and support you directly until you grab your genuine physical license."
+    a: "Our licensing programs are fully integrated with the FRSC (Federal Road Safety Corps) and VIO (Vehicle Inspection Office). We prepare you fully, guide your official testing, and support y[...]"
   },
   {
     q: "How do I book standard lessons and choose a timetable?",
-    a: "Simply click 'Sign Up' to select your course and prefer a schedule (e.g., Weekday mornings, Weekend evenings, etc.). After making your payment, send your proof to us on WhatsApp, and our coordinator will lock in your slots."
+    a: "Simply click 'Sign Up' to select your course and prefer a schedule (e.g., Weekday mornings, Weekend evenings, etc.). After making your payment, send your proof to us on WhatsApp, and our [...]"
   }
 ];
