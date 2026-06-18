@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Mail, Phone, MapPin, Instagram, Clock, Send, CheckCircle2, AlertCircle } from 'lucide-react';
+import { createContact } from '../lib/api';
 
 export function Contact() {
   const [name, setName] = useState('');
@@ -9,7 +10,7 @@ export function Contact() {
   const [isSuccess, setIsSuccess] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !email.trim() || !message.trim()) {
       alert("Please fill out all fields in the contact form.");
@@ -18,18 +19,23 @@ export function Contact() {
 
     setIsLoading(true);
 
-    // Save submission locally
-    setTimeout(() => {
-      const existing = JSON.parse(localStorage.getItem('falcon_contacts') || '[]');
-      existing.push({ name, email, message, date: new Date().toISOString() });
-      localStorage.setItem('falcon_contacts', JSON.stringify(existing));
+    const contact = { name: name.trim(), email: email.trim(), message: message.trim() };
 
-      setIsLoading(false);
-      setIsSuccess(true);
-      setName('');
-      setEmail('');
-      setMessage('');
-    }, 1000);
+    try {
+      await createContact(contact);
+    } catch (error) {
+      console.error('Backend contact save failed; keeping local backup only.', error);
+    }
+
+    const existing = JSON.parse(localStorage.getItem('falcon_contacts') || '[]');
+    existing.push({ ...contact, date: new Date().toISOString() });
+    localStorage.setItem('falcon_contacts', JSON.stringify(existing));
+
+    setIsLoading(false);
+    setIsSuccess(true);
+    setName('');
+    setEmail('');
+    setMessage('');
   };
 
   return (
