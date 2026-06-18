@@ -30,11 +30,22 @@ export default function App() {
     const hasCallback = params.get('payment_status') && params.get('reference');
     if (hasCallback) return; // Yield to payment verification process first
 
-    if ((currentPage === 'signup' || currentPage === 'dashboard') && !currentUser) {
+    if (currentPage === 'signup' && !currentUser) {
       setAuthViewMode('signup');
       setCurrentPage('auth');
+      return;
     }
-  }, [currentPage, currentUser]);
+
+    if (currentPage === 'dashboard' && !currentUser) {
+      setAuthViewMode('signin');
+      setCurrentPage('auth');
+      return;
+    }
+
+    if (currentPage === 'auth' && currentUser && authViewMode === 'signin') {
+      setCurrentPage('dashboard');
+    }
+  }, [authViewMode, currentPage, currentUser]);
 
   // Synchronously search for callback tokens from backend verified redirects
   useEffect(() => {
