@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { COURSES } from '../data';
 import { BookingSubmission } from '../types';
-import { BookmarkCheck, Send, CheckCircle2, Copy, ExternalLink, CalendarDays, PhoneCall, HelpCircle } from 'lucide-react';
+import { BookmarkCheck, Send, CheckCircle2, Copy, ExternalLink, CalendarDays, PhoneCall, HelpCircle, CloudLightning } from 'lucide-react';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 interface BookingProps {
   setCurrentPage: (page: string) => void;
@@ -19,6 +20,10 @@ export function Booking({ setCurrentPage, selectedCourseId, setSelectedCourseId 
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [submittedData, setSubmittedData] = useState<BookingSubmission | null>(null);
   const [copiedText, setCopiedText] = useState(false);
+  
+  const [isLoading, setIsLoading] = useState(false);
+  const [savedToCloud, setSavedToCloud] = useState(false);
+  const [usedFallback, setUsedFallback] = useState(false);
 
   // Auto-scroll to top when page loaded
   useEffect(() => {
@@ -31,29 +36,70 @@ export function Booking({ setCurrentPage, selectedCourseId, setSelectedCourseId 
     setTimeout(() => setCopiedText(false), 2000);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!fullName.trim() || !phone.trim() || !selectedCourseId) {
       alert("Please fill in your Full Name, Phone Number, and select a Course.");
       return;
     }
 
+    setIsLoading(true);
+    setSavedToCloud(false);
+    setUsedFallback(false);
+
     const booking: BookingSubmission = {
-      fullName,
-      phone,
+      fullName: fullName.trim(),
+      phone: phone.trim(),
       email: email.trim() || undefined,
       courseId: selectedCourseId,
       schedule,
       notes: notes.trim() || undefined
     };
 
-    // Store in localStorage for persistence simulator
-    const existing = JSON.parse(localStorage.getItem('falcon_bookings') || '[]');
-    existing.push(booking);
-    localStorage.setItem('falcon_bookings', JSON.stringify(existing));
+    // Store in LocalStorage first as fallback/buffer
+    try {
+      const existing = JSON.parse(localStorage.getItem('falcon_bookings') || '[]');
+      existing.push(booking);
+      localStorage.setItem('falcon_bookings', JSON.stringify(existing));
+    } catch (err) {
+      console.warn("Local storage write failed:", err);
+    }
+
+    let cloudSaved = false;
+    if (supabase) {
+      try {
+        const { error } = await supabase
+          .from('bookings')
+          .insert([
+            {
+              full_name: booking.fullName,
+              phone: booking.phone,
+              email: booking.email || null,
+              course_id: booking.courseId,
+              schedule: booking.schedule,
+              notes: booking.notes || null
+            }
+          ]);
+        
+        if (error) {
+          console.error("Supabase insert error:", error);
+          setUsedFallback(true);
+        } else {
+          cloudSaved = true;
+          setSavedToCloud(true);
+        }
+      } catch (err) {
+        console.error("Supabase connection failed:", err);
+        setUsedFallback(true);
+      }
+    } else {
+      // Supabase is not configured yet
+      setUsedFallback(true);
+    }
 
     setSubmittedData(booking);
     setIsSubmitted(true);
+    setIsLoading(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -239,10 +285,11 @@ export function Booking({ setCurrentPage, selectedCourseId, setSelectedCourseId 
                 <div className="pt-2">
                   <button
                     type="submit"
-                    className="w-full py-4 bg-neutral-900 border border-transparent hover:border-emerald-500 hover:bg-neutral-800 text-white font-sans font-bold text-sm uppercase tracking-wider rounded-xl transition-all shadow-lg hover:shadow-xl duration-300 flex items-center justify-center gap-2 cursor-pointer"
+                    disabled={isLoading}
+                    className="w-full py-4 bg-neutral-900 border border-transparent hover:border-emerald-500 hover:bg-neutral-800 text-white font-sans font-bold text-sm uppercase tracking-wider rounded-xl transition-all shadow-lg hover:shadow-xl duration-300 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
                     id="booking-form-submit-btn"
                   >
-                    Submit Registration & Get Fee Codes <Send className="w-4 h-4 text-emerald-400" />
+                    {isLoading ? 'Saving Registration...' : 'Submit Registration & Get Fee Codes'} <Send className="w-4 h-4 text-emerald-400" />
                   </button>
                 </div>
 
@@ -306,7 +353,16 @@ export function Booking({ setCurrentPage, selectedCourseId, setSelectedCourseId 
               <h2 className="font-display font-black text-2xl sm:text-3xl text-neutral-900 uppercase">
                 Registration Successful!
               </h2>
-              <p className="text-neutral-500 max-w-xl mx-auto text-sm">
+              {savedToCloud ? (
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full bg-emerald-50 border border-emerald-100 text-emerald-700 mx-auto">
+                  <CloudLightning className="w-3.5 h-3.5 fill-emerald-550" /> Synced securely with Supabase Cloud
+                </div>
+              ) : usedFallback ? (
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-full bg-amber-50 border border-amber-100 text-amber-700 mx-auto">
+                  <span>Saved locally • offline mode</span>
+                </div>
+              ) : null}
+              <p className="text-neutral-500 max-w-xl mx-auto text-sm pt-2">
                 Thank you, <strong className="text-neutral-800">{submittedData?.fullName}</strong>! Your school enrollment has been logged locally in Abuja. To guarantee and lock in your daily driving times immediately, follow the guidelines below:
               </p>
             </div>

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Mail, Phone, MapPin, Instagram, Clock, Send, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Mail, Phone, MapPin, Instagram, Clock, Send, CheckCircle2, AlertCircle, CloudLightning } from 'lucide-react';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 export function Contact() {
   const [name, setName] = useState('');
@@ -8,8 +9,10 @@ export function Contact() {
   
   const [isSuccess, setIsSuccess] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [savedToCloud, setSavedToCloud] = useState(false);
+  const [usedFallback, setUsedFallback] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !email.trim() || !message.trim()) {
       alert("Please fill out all fields in the contact form.");
@@ -17,19 +20,67 @@ export function Contact() {
     }
 
     setIsLoading(true);
+    setSavedToCloud(false);
+    setUsedFallback(false);
 
-    // Save submission locally
-    setTimeout(() => {
+    // Save submission locally as backup contingency
+    try {
       const existing = JSON.parse(localStorage.getItem('falcon_contacts') || '[]');
-      existing.push({ name, email, message, date: new Date().toISOString() });
+      existing.push({ name: name.trim(), email: email.trim(), message: message.trim(), date: new Date().toISOString() });
       localStorage.setItem('falcon_contacts', JSON.stringify(existing));
+    } catch (err) {
+      console.warn("Local storage write failed:", err);
+    }
 
-      setIsLoading(false);
-      setIsSuccess(true);
-      setName('');
-      setEmail('');
-      setMessage('');
-    }, 1000);
+    let cloudSaved = false;
+    if (supabase) {
+      try {
+        const { error } = await supabase
+          .from('contacts')
+          .insert([
+            {
+              name: name.trim(),
+              email: email.trim(),
+              message: message.trim()
+            }
+          ]);
+        
+        if (error) {
+          // Try inserting to 'messages' as an alternative database schema fallback
+          const { error: errorAlt } = await supabase
+            .from('messages')
+            .insert([
+              {
+                name: name.trim(),
+                email: email.trim(),
+                message: message.trim()
+              }
+            ]);
+          
+          if (errorAlt) {
+            console.error("Supabase insert error (tried 'contacts' & 'messages'):", error, errorAlt);
+            setUsedFallback(true);
+          } else {
+            cloudSaved = true;
+            setSavedToCloud(true);
+          }
+        } else {
+          cloudSaved = true;
+          setSavedToCloud(true);
+        }
+      } catch (err) {
+        console.error("Supabase query failed on Contact submission:", err);
+        setUsedFallback(true);
+      }
+    } else {
+      setUsedFallback(true);
+    }
+
+    setIsLoading(false);
+    setIsSuccess(true);
+    setName('');
+    setEmail('');
+    setMessage('');
   };
 
   return (
@@ -211,7 +262,16 @@ export function Contact() {
                     <CheckCircle2 className="w-8 h-8" />
                   </div>
                   <h4 className="font-display font-bold text-lg text-neutral-900 uppercase">Message Dispatched!</h4>
-                  <p className="text-xs text-neutral-500 max-w-sm mx-auto leading-relaxed">
+                  {savedToCloud ? (
+                    <div className="inline-flex items-center gap-1 px-2.5 py-0.5 text-[11px] font-semibold rounded-full bg-emerald-50 border border-emerald-100 text-emerald-700 mx-auto">
+                      <CloudLightning className="w-3 h-3 fill-emerald-550" /> Synced to Supabase Cloud
+                    </div>
+                  ) : usedFallback ? (
+                    <div className="inline-flex items-center gap-1 px-2.5 py-0.5 text-[11px] font-semibold rounded-full bg-amber-50 border border-amber-100 text-amber-700 mx-auto">
+                      <span>Saved offline</span>
+                    </div>
+                  ) : null}
+                  <p className="text-xs text-neutral-500 max-w-sm mx-auto leading-relaxed pt-1">
                     Success! Your message has been saved. Our booking coordinator based in Wuye, Abuja will review your query and contact you within 2 working hours.
                   </p>
                   <button
