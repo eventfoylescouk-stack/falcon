@@ -1,9 +1,12 @@
 import { Course, Testimonial, GalleryItem } from './types';
+import heroBannerImage from './assets/images/falcon_hero_banner_1781780038589.jpg';
+import simulatorTrainingImage from './assets/images/driving_simulator_training_1781780058581.jpg';
+import studentSuccessImage from './assets/images/student_success_license_1781780075476.jpg';
 
 // Let's use the actual file names for the beautiful generated assets
-export const HERO_IMAGE_URL = '/assets/images/falcon_hero_banner_1781780038589.jpg';
-export const SIMULATOR_IMAGE_URL = '/assets/images/driving_simulator_training_1781780058581.jpg';
-export const STUDENT_SUCCESS_IMAGE_URL = '/assets/images/student_success_license_1781780075476.jpg';
+export const HERO_IMAGE_URL = heroBannerImage;
+export const SIMULATOR_IMAGE_URL = simulatorTrainingImage;
+export const STUDENT_SUCCESS_IMAGE_URL = studentSuccessImage;
 
 export const COURSES: Course[] = [
   // Standard Programs
