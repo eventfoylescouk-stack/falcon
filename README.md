@@ -1,6 +1,6 @@
 # Falcon Driving School
 
-React + Vite frontend for Falcon Driving School in Wuye, Abuja, with a custom Express backend for course data, contact messages, and paid booking submissions. The backend can persist to Supabase when configured, or to local JSON files for development.
+React + Vite frontend for Falcon Driving School in Wuye, Abuja, with an Express backend for course data, contact messages, and paid booking submissions.
 
 ## Prerequisites
 
@@ -25,8 +25,6 @@ Optional backend variables:
 PORT="4000"
 DATA_DIR="./server/data"
 VITE_API_BASE_URL=""
-SUPABASE_URL="https://your-project.supabase.co"
-SUPABASE_SERVICE_ROLE_KEY="your_supabase_service_role_key"
 ```
 
 Use `VITE_API_BASE_URL` only when the frontend is hosted separately from the backend, for example `http://localhost:4000` while running Vite on port 3000.
@@ -65,4 +63,4 @@ npm start
 - `POST /api/bookings` stores a paid booking after Paystack checkout. If `PAYSTACK_SECRET_KEY` is configured, the backend verifies the Paystack reference before saving the booking record.
 - `POST /api/contacts` stores contact form submissions.
 
-By default, records are stored as JSON files in `DATA_DIR` so the site has a working custom backend without adding a database service yet. If `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are configured, the same backend writes to Supabase instead. Run `supabase/schema.sql` in the Supabase SQL editor before enabling Supabase storage. The default `server/data/` folder is git-ignored.
+Records are stored as JSON files in `DATA_DIR` so the site has a working backend without adding a database service yet. The default `server/data/` folder is git-ignored.
