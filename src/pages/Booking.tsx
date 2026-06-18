@@ -3,7 +3,7 @@ import { COURSES } from '../data';
 import { BookingSubmission } from '../types';
 import { BookmarkCheck, Send, CheckCircle2, Copy, ExternalLink, CalendarDays, PhoneCall, HelpCircle, CloudLightning, CreditCard, Lock, Sparkles, AlertCircle } from 'lucide-react';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
-import { initializePayment, openPaystackCheckoutModal, openPaystackInlineCheckout } from '../lib/paymentService';
+import { initializePayment, openPaystackCheckoutModal } from '../lib/paymentService';
 import { UserProfile } from '../lib/authService';
 
 interface BookingProps {
@@ -169,29 +169,27 @@ export function Booking({ setCurrentPage, selectedCourseId, setSelectedCourseId,
   const handlePaystackPayment = async (amountInNaira: number) => {
     setIsPaymentLoading(true);
     setPaymentError(null);
-
     const paymentEmail = submittedData?.email || email || currentUser?.email || 'student@falcon.academy';
     const payload = {
-      amount: amountInNaira,
-      email: paymentEmail.toLowerCase().trim(),
-      courseId: submittedData?.courseId || selectedCourseId,
-      schedule: submittedData?.schedule || 'weekday-morning',
-      fullName: submittedData?.fullName || currentUser?.fullName || 'Driving Student',
-      phone: submittedData?.phone || currentUser?.phone || '08000000000',
-      notes: submittedData?.notes || ''
-    };
+        amount: amountInNaira,
+        email: paymentEmail.toLowerCase().trim(),
+        courseId: submittedData?.courseId || selectedCourseId,
+        schedule: submittedData?.schedule || 'weekday-morning',
+        fullName: submittedData?.fullName || currentUser?.fullName || 'Driving Student',
+        phone: submittedData?.phone || currentUser?.phone || '08000000000',
+        notes: submittedData?.notes || ''
+      };
 
-    const openBackendCheckout = async () => {
       const data = await initializePayment(payload);
 
-      if (!data.status || !data.authorizationUrl) {
+      if (data.status && data.authorizationUrl) {
+        console.log(`[Frontend] Booking initialized securely. Opening Paystack checkout modal: ${data.authorizationUrl}`);
+        const checkoutWindow = openPaystackCheckoutModal(data.authorizationUrl);
+        if (!checkoutWindow) {
+          window.location.href = data.authorizationUrl;
+        }
+      } else {
         throw new Error(data.message || 'Failed to setup secure checkout URL.');
-      }
-
-      console.log(`[Frontend] Booking initialized securely. Opening Paystack checkout modal: ${data.authorizationUrl}`);
-      const checkoutWindow = openPaystackCheckoutModal(data.authorizationUrl);
-      if (!checkoutWindow) {
-        window.location.href = data.authorizationUrl;
       }
     };
 
@@ -215,12 +213,21 @@ export function Booking({ setCurrentPage, selectedCourseId, setSelectedCourseId,
     try {
       await openBackendCheckout();
     } catch (err: any) {
-      console.warn('Backend Paystack initialization unavailable, trying public-key checkout for testing:', err);
+      console.warn("Backend Paystack initialization unavailable, trying public-key checkout for testing:", err);
       try {
-        await openPublicKeyFallbackCheckout();
+        await openPaystackInlineCheckout(payload, (response) => {
+          setPaymentConfirmation({
+            reference: response.reference,
+            amount: amountInNaira,
+            status: response.status || 'success',
+            date: new Date().toISOString()
+          });
+          setIsPaymentLoading(false);
+        }, () => setIsPaymentLoading(false));
+        setPaymentError('Testing mode: checkout opened with your pk_ public key. Add PAYSTACK_SECRET_KEY=sk_test_... when you want backend verification/webhooks to mark Supabase bookings as paid automatically.');
       } catch (fallbackErr: any) {
-        console.error('Secure payment setup error:', fallbackErr);
-        setPaymentError(fallbackErr.message || err.message || 'Failed to contact secure payment endpoint.');
+        console.error("Secure payment setup error:", fallbackErr);
+        setPaymentError(fallbackErr.message || err.message || "Failed to contact secure payment endpoint.");
         setIsPaymentLoading(false);
       }
     }
