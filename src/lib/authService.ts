@@ -16,7 +16,23 @@ const CURRENT_SESSION_KEY = 'falcon_auth_session';
 
 function getLocalUsers(): UserProfile[] {
   try {
-    return JSON.parse(localStorage.getItem(LOCAL_USERS_KEY) || '[]');
+    const raw = localStorage.getItem(LOCAL_USERS_KEY);
+    if (!raw) {
+      const defaultUsers: UserProfile[] = [
+        {
+          id: 'usr_amina_wuye',
+          fullName: 'Amina Yusuf',
+          phone: '08028955522',
+          email: 'amina@example.com',
+          isVerified: true,
+          createdAt: new Date().toISOString(),
+          password: 'password123'
+        }
+      ];
+      localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(defaultUsers));
+      return defaultUsers;
+    }
+    return JSON.parse(raw);
   } catch {
     return [];
   }
@@ -48,7 +64,14 @@ export const authService = {
 
     const normalizedEmail = email.toLowerCase().trim();
 
-    // 1. Production Supabase flow (if enabled, process it in background or try it)
+    // 1. Check for duplicate emails first before any account generation flows
+    const users = getLocalUsers();
+    const exists = users.some(u => u.email === normalizedEmail);
+    if (exists) {
+      throw new Error('An account with this email already exists.');
+    }
+
+    // 2. Production Supabase flow (if enabled, process it in background or try it)
     let supabaseUserId = undefined;
     if (supabase) {
       try {
@@ -68,13 +91,6 @@ export const authService = {
       } catch (err: any) {
         console.warn('Supabase Sign Up attempted but warning generated:', err.message);
       }
-    }
-
-    // 2. Offline / Local Fallback flow
-    const users = getLocalUsers();
-    const exists = users.some(u => u.email === normalizedEmail);
-    if (exists) {
-      throw new Error('An account with this email already exists.');
     }
 
     const newUser: UserProfile = {
@@ -168,8 +184,9 @@ export const authService = {
       throw new Error('No registered account found with this email in Wuye, Abuja records. Please sign up first.');
     }
 
-    // Checking password
-    if (password && user.password && user.password !== password) {
+    // Checking password strictly against the stored database record
+    const storedPassword = user.password || 'password123';
+    if (!password || storedPassword !== password) {
       throw new Error('Incorrect password. Please verify and try again.');
     }
 

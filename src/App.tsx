@@ -12,6 +12,7 @@ import { Gallery } from './pages/Gallery';
 import { About } from './pages/About';
 import { Contact } from './pages/Contact';
 import { Auth } from './pages/Auth';
+import { Dashboard } from './pages/Dashboard';
 
 import { authService, UserProfile } from './lib/authService';
 import { supabase } from './lib/supabase';
@@ -23,9 +24,9 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [authViewMode, setAuthViewMode] = useState<'signin' | 'signup'>('signin');
 
-  // Route security guard: Require user registration/accounting before booking
+  // Route security guard: Require user registration/accounting before booking or dashboard
   useEffect(() => {
-    if (currentPage === 'signup' && !currentUser) {
+    if ((currentPage === 'signup' || currentPage === 'dashboard') && !currentUser) {
       setAuthViewMode('signup');
       setCurrentPage('auth');
     }
@@ -47,8 +48,8 @@ export default function App() {
           const syncedUser = await authService.syncSupabaseSession(session);
           if (syncedUser) {
             setCurrentUser(syncedUser);
-            // Auto redirect directly to the enrollment scheduler once active
-            setCurrentPage('signup');
+            // Auto redirect directly to the dashboard once active
+            setCurrentPage('dashboard');
           }
         } else if (event === 'SIGNED_OUT') {
           setCurrentUser(null);
@@ -146,6 +147,14 @@ export default function App() {
             initialView={authViewMode}
           />
         );
+      case 'dashboard':
+        return (
+          <Dashboard 
+            currentUser={currentUser} 
+            setCurrentPage={setCurrentPage} 
+            onLogout={handleLogout}
+          />
+        );
       case 'payment':
         return <Payment setCurrentPage={setCurrentPage} />;
       case 'gallery':
@@ -158,6 +167,17 @@ export default function App() {
         return <Home setCurrentPage={setCurrentPage} />;
     }
   };
+
+  if (currentPage === 'dashboard') {
+    return (
+      <div className="flex flex-col min-h-screen bg-neutral-50 selection:bg-emerald-500 selection:text-neutral-950 font-sans antialiased text-neutral-800">
+        <main className="flex-grow">
+          {renderActivePage()}
+        </main>
+        <WhatsAppButton />
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col min-h-screen bg-neutral-50 selection:bg-emerald-500 selection:text-neutral-950 font-sans antialiased text-neutral-800">

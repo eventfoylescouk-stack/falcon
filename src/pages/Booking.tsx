@@ -130,6 +130,11 @@ export function Booking({ setCurrentPage, selectedCourseId, setSelectedCourseId,
     }
 
     setSubmittedData(booking);
+    try {
+      localStorage.setItem('falcon_last_booking_success', JSON.stringify(booking));
+    } catch (e) {
+      console.warn("Storage write failed:", e);
+    }
     setIsSubmitted(true);
     setIsLoading(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -194,6 +199,23 @@ export function Booking({ setCurrentPage, selectedCourseId, setSelectedCourseId,
             date: new Date().toLocaleDateString()
           });
           setIsPaymentLoading(false);
+          
+          // Instantly write to local storage as payment confirmation
+          try {
+            const currentPayInfo = {
+              reference: response.reference || reference,
+              amount: amountInNaira,
+              date: new Date().toLocaleDateString()
+            };
+            localStorage.setItem('falcon_last_payment_success', JSON.stringify(currentPayInfo));
+          } catch(e) {
+            console.warn("Could not sync local payment info:", e);
+          }
+
+          // Automatically redirect student to their newly unlocked student dashboard
+          setTimeout(() => {
+            setCurrentPage('dashboard');
+          }, 1500);
         },
         onClose: function() {
           console.log("[Paystack Checkout Closed]");

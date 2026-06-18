@@ -100,7 +100,10 @@ export function Header({ currentPage, setCurrentPage, currentUser, onLogout, set
                 >
                   Book Lesson
                 </button>
-                <div className="flex items-center gap-3 bg-emerald-50/80 border border-emerald-100 px-4 py-2 rounded-xl">
+                <div 
+                  className="flex items-center gap-3 bg-emerald-50/80 border border-emerald-100 px-4 py-2 rounded-xl"
+                  title="Learner Profile Active"
+                >
                   <UserCheck className="w-4 h-4 text-emerald-600 shrink-0" />
                   <div className="flex flex-col text-left">
                     <span className="font-sans font-bold text-xs text-neutral-800 leading-none">
@@ -111,7 +114,10 @@ export function Header({ currentPage, setCurrentPage, currentUser, onLogout, set
                     </span>
                   </div>
                   <button
-                    onClick={onLogout}
+                    onClick={(e) => {
+                      e.stopPropagation(); // Prevent routing trigger on logout click
+                      if (onLogout) onLogout();
+                    }}
                     title="Sign Out"
                     className="p-1 text-neutral-500 hover:text-red-600 transition-colors ml-1 cursor-pointer"
                   >

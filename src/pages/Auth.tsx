@@ -37,6 +37,8 @@ export function Auth({ setCurrentPage, onLoginSuccess, initialView }: AuthProps)
   const [verificationCode, setVerificationCode] = useState('');
   const [simulatedCode, setSimulatedCode] = useState<string | null>(null);
 
+
+
   // Clear messages on view changes
   useEffect(() => {
     setErrorMessage(null);
@@ -74,12 +76,12 @@ export function Auth({ setCurrentPage, onLoginSuccess, initialView }: AuthProps)
           setView('verify');
         }, 1500);
       } else {
-        setSuccessMessage("Welcome student! Account registered and authorized instantly.");
+        setSuccessMessage("Welcome student! Account registered and authorized instantly. Redirecting to dashboard...");
         if (onLoginSuccess && res.user) {
           onLoginSuccess(res.user);
         }
         setTimeout(() => {
-          setCurrentPage('signup');
+          setCurrentPage('dashboard');
         }, 1500);
       }
 
@@ -105,12 +107,12 @@ export function Auth({ setCurrentPage, onLoginSuccess, initialView }: AuthProps)
       const user = await authService.signIn(email, password);
       
       // Login success
-      setSuccessMessage("Authentication verified! Redirecting to booking form...");
+      setSuccessMessage("Authentication verified! Redirecting to dashboard...");
       if (onLoginSuccess) {
         onLoginSuccess(user);
       }
       setTimeout(() => {
-        setCurrentPage('signup');
+        setCurrentPage('dashboard');
       }, 1500);
 
     } catch (err: any) {
@@ -152,7 +154,7 @@ export function Auth({ setCurrentPage, onLoginSuccess, initialView }: AuthProps)
         }
 
         setTimeout(() => {
-          setCurrentPage('signup');
+          setCurrentPage('dashboard');
           setVerificationCode('');
         }, 1500);
       }
@@ -417,7 +419,7 @@ export function Auth({ setCurrentPage, onLoginSuccess, initialView }: AuthProps)
               </div>
 
               <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4 text-left text-xs text-emerald-800 leading-relaxed space-y-1.5">
-                <p className="font-semibold text-emerald-900 flex items-center gap-1.5">
+                <p className="font-semibold text-emerald-950 flex items-center gap-1.5">
                   <ShieldCheck className="w-4 h-4 shrink-0 text-emerald-600" /> Real-time Activation Active
                 </p>
                 <p>
@@ -449,6 +451,8 @@ export function Auth({ setCurrentPage, onLoginSuccess, initialView }: AuthProps)
           )}
 
         </div>
+
+
 
       </div>
     </div>
