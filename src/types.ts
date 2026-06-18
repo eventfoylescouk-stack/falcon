@@ -32,6 +32,7 @@ export interface BookingSubmission {
   courseId: string;
   schedule: string;
   notes?: string;
+  paymentReference?: string;
 }
 
 export interface ContactSubmission {

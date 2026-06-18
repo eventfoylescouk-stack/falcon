@@ -1,7 +1,32 @@
 import React, { useState, useEffect } from 'react';
 import { COURSES } from '../data';
 import { BookingSubmission } from '../types';
-import { BookmarkCheck, Send, CheckCircle2, Copy, ExternalLink, CalendarDays, PhoneCall, HelpCircle } from 'lucide-react';
+import { BookmarkCheck, Send, CheckCircle2, ExternalLink, CalendarDays, PhoneCall, HelpCircle } from 'lucide-react';
+
+interface PaystackCallbackResponse {
+  reference: string;
+}
+
+interface PaystackOptions {
+  key: string;
+  email: string;
+  amount: number;
+  currency: string;
+  ref: string;
+  metadata?: Record<string, unknown>;
+  callback: (response: PaystackCallbackResponse) => void;
+  onClose: () => void;
+}
+
+declare global {
+  interface Window {
+    PaystackPop?: {
+      setup: (options: PaystackOptions) => {
+        openIframe: () => void;
+      };
+    };
+  }
+}
 
 interface BookingProps {
   setCurrentPage: (page: string) => void;
@@ -18,43 +43,108 @@ export function Booking({ setCurrentPage, selectedCourseId, setSelectedCourseId 
   
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [submittedData, setSubmittedData] = useState<BookingSubmission | null>(null);
-  const [copiedText, setCopiedText] = useState(false);
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+  const [paymentReference, setPaymentReference] = useState('');
 
   // Auto-scroll to top when page loaded
   useEffect(() => {
     window.scrollTo(0, 0);
   }, []);
 
-  const handleCopyBank = () => {
-    navigator.clipboard.writeText("8028955522");
-    setCopiedText(true);
-    setTimeout(() => setCopiedText(false), 2000);
+  const loadPaystackScript = () => {
+    if (window.PaystackPop) return Promise.resolve();
+
+    return new Promise<void>((resolve, reject) => {
+      const existingScript = document.getElementById('paystack-inline-script') as HTMLScriptElement | null;
+      if (existingScript) {
+        existingScript.addEventListener('load', () => resolve(), { once: true });
+        existingScript.addEventListener('error', () => reject(new Error('Failed to load Paystack script.')), { once: true });
+        return;
+      }
+
+      const script = document.createElement('script');
+      script.id = 'paystack-inline-script';
+      script.src = 'https://js.paystack.co/v1/inline.js';
+      script.async = true;
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error('Failed to load Paystack script.'));
+      document.body.appendChild(script);
+    });
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!fullName.trim() || !phone.trim() || !selectedCourseId) {
       alert("Please fill in your Full Name, Phone Number, and select a Course.");
       return;
     }
 
+    const paystackPublicKey = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY;
+    if (!paystackPublicKey) {
+      alert("Payment setup is incomplete. Please contact support.");
+      return;
+    }
+
+    setIsProcessingPayment(true);
+
+    const safeEmail = email.trim() || `student${phone.replace(/\D/g, '') || Date.now()}@falcondrivingschool.ng`;
+
     const booking: BookingSubmission = {
       fullName,
       phone,
-      email: email.trim() || undefined,
+      email: safeEmail,
       courseId: selectedCourseId,
       schedule,
       notes: notes.trim() || undefined
     };
 
-    // Store in localStorage for persistence simulator
-    const existing = JSON.parse(localStorage.getItem('falcon_bookings') || '[]');
-    existing.push(booking);
-    localStorage.setItem('falcon_bookings', JSON.stringify(existing));
+    try {
+      await loadPaystackScript();
 
-    setSubmittedData(booking);
-    setIsSubmitted(true);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+      await new Promise<void>((resolve, reject) => {
+        const paystackHandler = window.PaystackPop?.setup({
+          key: paystackPublicKey,
+          email: safeEmail,
+          amount: Math.round(selectedCourse.price * 100),
+          currency: 'NGN',
+          ref: `falcon_${Date.now()}`,
+          metadata: {
+            fullName,
+            phone,
+            courseId: selectedCourseId,
+            schedule
+          },
+          callback: (response: PaystackCallbackResponse) => {
+            const paidBooking: BookingSubmission = {
+              ...booking,
+              paymentReference: response.reference
+            };
+            const existing = JSON.parse(localStorage.getItem('falcon_bookings') || '[]');
+            existing.push(paidBooking);
+            localStorage.setItem('falcon_bookings', JSON.stringify(existing));
+            setPaymentReference(response.reference);
+            setSubmittedData(paidBooking);
+            setIsSubmitted(true);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            resolve();
+          },
+          onClose: () => {
+            reject(new Error('Payment was not completed.'));
+          }
+        });
+
+        if (!paystackHandler) {
+          reject(new Error('Unable to initialize Paystack.'));
+          return;
+        }
+
+        paystackHandler.openIframe();
+      });
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Payment failed. Please try again.');
+    } finally {
+      setIsProcessingPayment(false);
+    }
   };
 
   const selectedCourse = COURSES.find(c => c.id === selectedCourseId) || COURSES[0];
@@ -74,7 +164,7 @@ export function Booking({ setCurrentPage, selectedCourseId, setSelectedCourseId 
     
     const courseName = COURSES.find(c => c.id === submittedData.courseId)?.name || "Premium Course";
     const scheduleName = getScheduleLabel(submittedData.schedule);
-    const textMessage = `Hello Falcon Driving School! I just registered online:\n\n*Name:* ${submittedData.fullName}\n*Phone:* ${submittedData.phone}\n*Email:* ${submittedData.email || 'N/A'}\n*Course:* ${courseName}\n*Preferred Hours:* ${scheduleName}\n*Notes:* ${submittedData.notes || 'None'}\n\nPlease help lock in my timetable slots!`;
+    const textMessage = `Hello Falcon Driving School! I just registered and paid online:\n\n*Name:* ${submittedData.fullName}\n*Phone:* ${submittedData.phone}\n*Email:* ${submittedData.email || 'N/A'}\n*Course:* ${courseName}\n*Preferred Hours:* ${scheduleName}\n*Payment Reference:* ${submittedData.paymentReference || paymentReference || 'N/A'}\n*Notes:* ${submittedData.notes || 'None'}\n\nPlease help lock in my timetable slots!`;
     
     const encoded = encodeURIComponent(textMessage);
     window.open(`https://wa.me/2348028955522?text=${encoded}`, '_blank');
@@ -239,10 +329,11 @@ export function Booking({ setCurrentPage, selectedCourseId, setSelectedCourseId 
                 <div className="pt-2">
                   <button
                     type="submit"
+                    disabled={isProcessingPayment}
                     className="w-full py-4 bg-neutral-900 border border-transparent hover:border-emerald-500 hover:bg-neutral-800 text-white font-sans font-bold text-sm uppercase tracking-wider rounded-xl transition-all shadow-lg hover:shadow-xl duration-300 flex items-center justify-center gap-2 cursor-pointer"
                     id="booking-form-submit-btn"
                   >
-                    Submit Registration & Get Fee Codes <Send className="w-4 h-4 text-emerald-400" />
+                    {isProcessingPayment ? 'Processing Payment...' : 'Pay with Paystack & Complete Sign Up'} <Send className="w-4 h-4 text-emerald-400" />
                   </button>
                 </div>
 
@@ -304,45 +395,46 @@ export function Booking({ setCurrentPage, selectedCourseId, setSelectedCourseId 
 
             <div className="space-y-3">
               <h2 className="font-display font-black text-2xl sm:text-3xl text-neutral-900 uppercase">
-                Registration Successful!
+                Payment & Registration Successful!
               </h2>
               <p className="text-neutral-500 max-w-xl mx-auto text-sm">
-                Thank you, <strong className="text-neutral-800">{submittedData?.fullName}</strong>! Your school enrollment has been logged locally in Abuja. To guarantee and lock in your daily driving times immediately, follow the guidelines below:
+                Thank you, <strong className="text-neutral-800">{submittedData?.fullName}</strong>! Your payment has been confirmed and your enrollment is now active.
               </p>
+              {paymentReference && (
+                <p className="text-xs text-neutral-500">
+                  Transaction reference: <strong className="text-neutral-800">{paymentReference}</strong>
+                </p>
+              )}
             </div>
 
             {/* Splitted Instructions */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 text-left border-y border-neutral-100 py-8">
               
-              {/* Left Column: Bank Code instructions */}
+              {/* Left Column: Payment confirmation */}
               <div className="space-y-4">
                 <h3 className="font-display font-bold text-sm text-neutral-900 uppercase flex items-center gap-1.5 bg-neutral-100 p-2 rounded-lg">
-                  <BookmarkCheck className="w-4 h-4 text-red-500" /> 1. Make Tuition Transfer
+                  <BookmarkCheck className="w-4 h-4 text-red-500" /> 1. Payment Confirmed
                 </h3>
-                <div className="bg-neutral-50 p-5 rounded-2xl border border-neutral-200/60 font-mono text-xs space-y-2 relative">
+                <div className="bg-neutral-50 p-5 rounded-2xl border border-neutral-200/60 text-xs space-y-2 relative">
                   <div>
-                    <span className="text-[10px] text-neutral-400 block tracking-wider font-sans">BANK:</span>
-                    <span className="font-sans font-bold text-neutral-800 text-sm">Moniepoint MFB</span>
-                  </div>
-                  <div className="pt-1.5 flex justify-between items-center">
-                    <div>
-                      <span className="text-[10px] text-neutral-400 block tracking-wider font-sans">ACCOUNT NUMBER:</span>
-                      <span className="text-sm font-bold text-neutral-800 tracking-wider">8028955522</span>
-                    </div>
-                    <button
-                      onClick={handleCopyBank}
-                      className="text-xs font-semibold px-3 py-1 bg-white hover:bg-neutral-100 border border-neutral-200 rounded-lg cursor-pointer text-neutral-600 flex items-center gap-1 active:scale-95 transition-transform"
-                    >
-                      {copiedText ? 'Copied!' : <><Copy className="w-3.5 h-3.5" /> Copy</>}
-                    </button>
+                    <span className="text-[10px] text-neutral-400 block tracking-wider">COURSE:</span>
+                    <span className="font-bold text-neutral-800 text-sm">{selectedCourse.name}</span>
                   </div>
                   <div className="pt-1.5">
-                    <span className="text-[10px] text-neutral-400 block tracking-wider font-sans">ACCOUNT NAME:</span>
-                    <span className="font-sans font-bold text-neutral-800 text-sm">Falcon Driving School Ltd</span>
+                    <span className="text-[10px] text-neutral-400 block tracking-wider">AMOUNT PAID:</span>
+                    <span className="text-sm font-bold text-neutral-800 tracking-wider">
+                      {selectedCourse.price.toLocaleString('en-NG', { style: 'currency', currency: 'NGN', minimumFractionDigits: 0 })}
+                    </span>
+                  </div>
+                  <div className="pt-1.5">
+                    <span className="text-[10px] text-neutral-400 block tracking-wider">PAYSTACK REFERENCE:</span>
+                    <div>
+                      <span className="text-sm font-bold text-neutral-800 tracking-wider">{submittedData?.paymentReference || paymentReference || 'N/A'}</span>
+                    </div>
                   </div>
                 </div>
                 <p className="text-[11px] text-neutral-400 leading-normal pl-1.5">
-                  * Tuition deposits lock in instant vehicle matching and specific day hours. You can pay fully or drop a flexible 60% deposit.
+                  * Keep this reference for support and receipt confirmation.
                 </p>
               </div>
 
@@ -381,6 +473,7 @@ export function Booking({ setCurrentPage, selectedCourseId, setSelectedCourseId 
                   setPhone('');
                   setEmail('');
                   setNotes('');
+                  setPaymentReference('');
                 }}
                 className="text-emerald-600 hover:text-emerald-500 font-bold underline cursor-pointer"
               >
