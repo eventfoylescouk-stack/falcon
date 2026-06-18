@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { COURSES } from '../data';
 import { BookingSubmission } from '../types';
-import { BookmarkCheck, Send, CheckCircle2, ExternalLink, CalendarDays, PhoneCall, HelpCircle } from 'lucide-react';
+import { BookmarkCheck, Send, CheckCircle2, ExternalLink, CalendarDays, PhoneCall, HelpCircle, LoaderCircle } from 'lucide-react';
 
 interface PaystackCallbackResponse {
   reference: string;
@@ -72,6 +72,21 @@ export function Booking({ setCurrentPage, selectedCourseId, setSelectedCourseId 
     });
   };
 
+  const getStoredBookings = () => {
+    try {
+      const parsedBookings = JSON.parse(localStorage.getItem('falcon_bookings') || '[]');
+      return Array.isArray(parsedBookings) ? parsedBookings : [];
+    } catch {
+      return [];
+    }
+  };
+
+  const buildWhatsAppMessage = (data: BookingSubmission) => {
+    const courseName = COURSES.find(c => c.id === data.courseId)?.name || "Premium Course";
+    const scheduleName = getScheduleLabel(data.schedule);
+    return `Hello Falcon Driving School! I just registered and paid online:\n\n*Name:* ${data.fullName}\n*Phone:* ${data.phone}\n*Email:* ${data.email || 'N/A'}\n*Course:* ${courseName}\n*Preferred Hours:* ${scheduleName}\n*Payment Reference:* ${data.paymentReference || paymentReference || 'N/A'}\n*Notes:* ${data.notes || 'None'}\n\nPlease help lock in my timetable slots!`;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!fullName.trim() || !phone.trim() || !selectedCourseId) {
@@ -87,7 +102,8 @@ export function Booking({ setCurrentPage, selectedCourseId, setSelectedCourseId 
 
     setIsProcessingPayment(true);
 
-    const safeEmail = email.trim() || `student${phone.replace(/\D/g, '') || Date.now()}@falcondrivingschool.ng`;
+    const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const safeEmail = email.trim() || `student${phone.replace(/\D/g, '') || 'na'}_${uniqueSuffix}@falcondrivingschool.ng`;
 
     const booking: BookingSubmission = {
       fullName,
@@ -107,7 +123,7 @@ export function Booking({ setCurrentPage, selectedCourseId, setSelectedCourseId 
           email: safeEmail,
           amount: Math.round(selectedCourse.price * 100),
           currency: 'NGN',
-          ref: `falcon_${Date.now()}`,
+          ref: `falcon_${uniqueSuffix}`,
           metadata: {
             fullName,
             phone,
@@ -119,7 +135,7 @@ export function Booking({ setCurrentPage, selectedCourseId, setSelectedCourseId 
               ...booking,
               paymentReference: response.reference
             };
-            const existing = JSON.parse(localStorage.getItem('falcon_bookings') || '[]');
+            const existing = getStoredBookings();
             existing.push(paidBooking);
             localStorage.setItem('falcon_bookings', JSON.stringify(existing));
             setPaymentReference(response.reference);
@@ -161,11 +177,8 @@ export function Booking({ setCurrentPage, selectedCourseId, setSelectedCourseId 
 
   const handleWhatsAppRedirect = () => {
     if (!submittedData) return;
-    
-    const courseName = COURSES.find(c => c.id === submittedData.courseId)?.name || "Premium Course";
-    const scheduleName = getScheduleLabel(submittedData.schedule);
-    const textMessage = `Hello Falcon Driving School! I just registered and paid online:\n\n*Name:* ${submittedData.fullName}\n*Phone:* ${submittedData.phone}\n*Email:* ${submittedData.email || 'N/A'}\n*Course:* ${courseName}\n*Preferred Hours:* ${scheduleName}\n*Payment Reference:* ${submittedData.paymentReference || paymentReference || 'N/A'}\n*Notes:* ${submittedData.notes || 'None'}\n\nPlease help lock in my timetable slots!`;
-    
+
+    const textMessage = buildWhatsAppMessage(submittedData);
     const encoded = encodeURIComponent(textMessage);
     window.open(`https://wa.me/2348028955522?text=${encoded}`, '_blank');
   };
@@ -333,7 +346,7 @@ export function Booking({ setCurrentPage, selectedCourseId, setSelectedCourseId 
                     className="w-full py-4 bg-neutral-900 border border-transparent hover:border-emerald-500 hover:bg-neutral-800 text-white font-sans font-bold text-sm uppercase tracking-wider rounded-xl transition-all shadow-lg hover:shadow-xl duration-300 flex items-center justify-center gap-2 cursor-pointer"
                     id="booking-form-submit-btn"
                   >
-                    {isProcessingPayment ? 'Processing Payment...' : 'Pay with Paystack & Complete Sign Up'} <Send className="w-4 h-4 text-emerald-400" />
+                    {isProcessingPayment ? 'Processing Payment...' : 'Pay with Paystack & Complete Sign Up'} {isProcessingPayment ? <LoaderCircle className="w-4 h-4 text-emerald-400 animate-spin" /> : <Send className="w-4 h-4 text-emerald-400" />}
                   </button>
                 </div>
 
