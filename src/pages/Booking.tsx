@@ -44,7 +44,6 @@ export function Booking({ setCurrentPage, selectedCourseId, setSelectedCourseId 
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [submittedData, setSubmittedData] = useState<BookingSubmission | null>(null);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
-  const [paymentReference, setPaymentReference] = useState('');
 
   // Auto-scroll to top when page loaded
   useEffect(() => {
@@ -81,10 +80,15 @@ export function Booking({ setCurrentPage, selectedCourseId, setSelectedCourseId 
     }
   };
 
+  const generateFallbackEmail = (phoneNumber: string) => {
+    const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    return `student${phoneNumber.replace(/\D/g, '') || 'na'}_${uniqueSuffix}@falcondrivingschool.ng`;
+  };
+
   const buildWhatsAppMessage = (data: BookingSubmission) => {
     const courseName = COURSES.find(c => c.id === data.courseId)?.name || "Premium Course";
     const scheduleName = getScheduleLabel(data.schedule);
-    return `Hello Falcon Driving School! I just registered and paid online:\n\n*Name:* ${data.fullName}\n*Phone:* ${data.phone}\n*Email:* ${data.email || 'N/A'}\n*Course:* ${courseName}\n*Preferred Hours:* ${scheduleName}\n*Payment Reference:* ${data.paymentReference || paymentReference || 'N/A'}\n*Notes:* ${data.notes || 'None'}\n\nPlease help lock in my timetable slots!`;
+    return `Hello Falcon Driving School! I just registered and paid online:\n\n*Name:* ${data.fullName}\n*Phone:* ${data.phone}\n*Email:* ${data.email || 'N/A'}\n*Course:* ${courseName}\n*Preferred Hours:* ${scheduleName}\n*Payment Reference:* ${data.paymentReference || 'N/A'}\n*Notes:* ${data.notes || 'None'}\n\nPlease help lock in my timetable slots!`;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -103,7 +107,7 @@ export function Booking({ setCurrentPage, selectedCourseId, setSelectedCourseId 
     setIsProcessingPayment(true);
 
     const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    const safeEmail = email.trim() || `student${phone.replace(/\D/g, '') || 'na'}_${uniqueSuffix}@falcondrivingschool.ng`;
+    const safeEmail = email.trim() || generateFallbackEmail(phone);
 
     const booking: BookingSubmission = {
       fullName,
@@ -138,7 +142,6 @@ export function Booking({ setCurrentPage, selectedCourseId, setSelectedCourseId 
             const existing = getStoredBookings();
             existing.push(paidBooking);
             localStorage.setItem('falcon_bookings', JSON.stringify(existing));
-            setPaymentReference(response.reference);
             setSubmittedData(paidBooking);
             setIsSubmitted(true);
             window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -182,6 +185,11 @@ export function Booking({ setCurrentPage, selectedCourseId, setSelectedCourseId 
     const encoded = encodeURIComponent(textMessage);
     window.open(`https://wa.me/2348028955522?text=${encoded}`, '_blank');
   };
+
+  const submitLabel = isProcessingPayment ? 'Processing Payment...' : 'Pay with Paystack & Complete Sign Up';
+  const submitIcon = isProcessingPayment
+    ? <LoaderCircle className="w-4 h-4 text-emerald-400 animate-spin" />
+    : <Send className="w-4 h-4 text-emerald-400" />;
 
   return (
     <div className="bg-neutral-50 py-16 lg:py-24 font-sans text-neutral-800" id="booking-page-root">
@@ -346,7 +354,7 @@ export function Booking({ setCurrentPage, selectedCourseId, setSelectedCourseId 
                     className="w-full py-4 bg-neutral-900 border border-transparent hover:border-emerald-500 hover:bg-neutral-800 text-white font-sans font-bold text-sm uppercase tracking-wider rounded-xl transition-all shadow-lg hover:shadow-xl duration-300 flex items-center justify-center gap-2 cursor-pointer"
                     id="booking-form-submit-btn"
                   >
-                    {isProcessingPayment ? 'Processing Payment...' : 'Pay with Paystack & Complete Sign Up'} {isProcessingPayment ? <LoaderCircle className="w-4 h-4 text-emerald-400 animate-spin" /> : <Send className="w-4 h-4 text-emerald-400" />}
+                    {submitLabel} {submitIcon}
                   </button>
                 </div>
 
@@ -413,9 +421,9 @@ export function Booking({ setCurrentPage, selectedCourseId, setSelectedCourseId 
               <p className="text-neutral-500 max-w-xl mx-auto text-sm">
                 Thank you, <strong className="text-neutral-800">{submittedData?.fullName}</strong>! Your payment has been confirmed and your enrollment is now active.
               </p>
-              {paymentReference && (
+              {submittedData?.paymentReference && (
                 <p className="text-xs text-neutral-500">
-                  Transaction reference: <strong className="text-neutral-800">{paymentReference}</strong>
+                  Transaction reference: <strong className="text-neutral-800">{submittedData.paymentReference}</strong>
                 </p>
               )}
             </div>
@@ -442,7 +450,7 @@ export function Booking({ setCurrentPage, selectedCourseId, setSelectedCourseId 
                   <div className="pt-1.5">
                     <span className="text-[10px] text-neutral-400 block tracking-wider">PAYSTACK REFERENCE:</span>
                     <div>
-                      <span className="text-sm font-bold text-neutral-800 tracking-wider">{submittedData?.paymentReference || paymentReference || 'N/A'}</span>
+                      <span className="text-sm font-bold text-neutral-800 tracking-wider">{submittedData?.paymentReference || 'N/A'}</span>
                     </div>
                   </div>
                 </div>
@@ -486,7 +494,6 @@ export function Booking({ setCurrentPage, selectedCourseId, setSelectedCourseId 
                   setPhone('');
                   setEmail('');
                   setNotes('');
-                  setPaymentReference('');
                 }}
                 className="text-emerald-600 hover:text-emerald-500 font-bold underline cursor-pointer"
               >
