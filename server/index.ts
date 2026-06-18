@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { promises as fs } from 'node:fs';
 import { COURSES } from '../src/data';
 import type { BookingSubmission, ContactSubmission } from '../src/types';
 
@@ -22,64 +23,33 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const app = express();
 const port = Number(process.env.PORT || 4000);
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const dataDir = process.env.DATA_DIR || path.join(__dirname, 'data');
+const bookingsFile = path.join(dataDir, 'bookings.json');
+const contactsFile = path.join(dataDir, 'contacts.json');
 const distDir = path.resolve(__dirname, '../dist');
 
 app.use(express.json({ limit: '1mb' }));
 
-function getSupabaseConfig() {
-  if (!supabaseUrl || !supabaseServiceRoleKey) {
-    throw new Error('Supabase is not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY on the backend.');
-  }
-
-  return { supabaseUrl, supabaseServiceRoleKey };
-}
-
-async function insertSupabaseRecord(table: 'bookings' | 'contacts', record: Record<string, unknown>) {
-  const config = getSupabaseConfig();
-  const response = await fetch(`${config.supabaseUrl}/rest/v1/${table}`, {
-    method: 'POST',
-    headers: {
-      apikey: config.supabaseServiceRoleKey,
-      Authorization: `Bearer ${config.supabaseServiceRoleKey}`,
-      'Content-Type': 'application/json',
-      Prefer: 'return=representation',
-    },
-    body: JSON.stringify(record),
-  });
-
-  if (!response.ok) {
-    const errorBody = await response.text();
-    throw new Error(`Supabase insert failed for ${table}: ${errorBody}`);
+async function ensureDataFile(filePath: string) {
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  try {
+    await fs.access(filePath);
+  } catch {
+    await fs.writeFile(filePath, '[]\n', 'utf8');
   }
 }
 
-async function persistBooking(booking: StoredBooking) {
-  await insertSupabaseRecord('bookings', {
-    id: booking.id,
-    full_name: booking.fullName,
-    phone: booking.phone,
-    email: booking.email ?? null,
-    course_id: booking.courseId,
-    course_name: booking.courseName,
-    amount: booking.amount,
-    schedule: booking.schedule,
-    notes: booking.notes ?? null,
-    payment_reference: booking.paymentReference,
-    payment_verified: booking.paymentVerified,
-    created_at: booking.createdAt,
-  });
+async function readJsonArray<T>(filePath: string): Promise<T[]> {
+  await ensureDataFile(filePath);
+  const raw = await fs.readFile(filePath, 'utf8');
+  const parsed = JSON.parse(raw) as unknown;
+  return Array.isArray(parsed) ? parsed as T[] : [];
 }
 
-async function persistContact(contact: StoredContact) {
-  await insertSupabaseRecord('contacts', {
-    id: contact.id,
-    name: contact.name,
-    email: contact.email,
-    message: contact.message,
-    created_at: contact.createdAt,
-  });
+async function appendJsonRecord<T>(filePath: string, record: T) {
+  const records = await readJsonArray<T>(filePath);
+  records.push(record);
+  await fs.writeFile(filePath, `${JSON.stringify(records, null, 2)}\n`, 'utf8');
 }
 
 function cleanString(value: unknown) {
@@ -111,12 +81,7 @@ async function verifyPaystackReference(reference: string) {
 }
 
 app.get('/api/health', (_req, res) => {
-  res.json({
-    ok: true,
-    service: 'falcon-backend',
-    storage: 'supabase',
-    supabaseConfigured: Boolean(supabaseUrl && supabaseServiceRoleKey),
-  });
+  res.json({ ok: true, service: 'falcon-backend' });
 });
 
 app.get('/api/courses', (_req, res) => {
@@ -160,7 +125,7 @@ app.post('/api/bookings', async (req, res, next) => {
       createdAt: new Date().toISOString(),
     };
 
-    await persistBooking(booking);
+    await appendJsonRecord(bookingsFile, booking);
     res.status(201).json({ booking });
   } catch (error) {
     next(error);
@@ -186,7 +151,7 @@ app.post('/api/contacts', async (req, res, next) => {
       createdAt: new Date().toISOString(),
     };
 
-    await persistContact(contact);
+    await appendJsonRecord(contactsFile, contact);
     res.status(201).json({ contact });
   } catch (error) {
     next(error);

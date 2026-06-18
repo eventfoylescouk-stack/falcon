@@ -1,5 +1,5 @@
 -- Falcon backend storage schema for Supabase.
--- Run this in the Supabase SQL editor before enabling the backend.
+-- Run this in the Supabase SQL editor if you choose Supabase persistence.
 
 create table if not exists public.bookings (
   id text primary key,

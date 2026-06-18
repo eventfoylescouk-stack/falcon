@@ -1,38 +1,29 @@
 # Falcon Driving School
 
-React + Vite frontend for Falcon Driving School in Wuye, Abuja, with a custom Express API that uses Supabase as the primary backend database for bookings and contact messages.
+React + Vite frontend for Falcon Driving School in Wuye, Abuja, with an Express backend for course data, contact messages, and paid booking submissions.
 
-## Supabase setup
+## Prerequisites
 
-1. Create a Supabase project at <https://supabase.com>.
-2. Open the project dashboard, then go to **SQL Editor**.
-3. Paste and run the SQL from `supabase/schema.sql`. This creates the `bookings` and `contacts` tables.
-4. Go to **Project Settings → API**.
-5. Copy your **Project URL** into `SUPABASE_URL`.
-6. Copy your **service_role** key into `SUPABASE_SERVICE_ROLE_KEY`.
-   - Keep this key server-side only.
-   - Do not expose it as a `VITE_` variable.
-7. Add your Paystack keys:
-   - `VITE_PAYSTACK_PUBLIC_KEY` is used by the browser checkout.
-   - `PAYSTACK_SECRET_KEY` is used by the backend to verify payment references.
+- Node.js 22+
+- npm
+- Paystack public and secret keys for live payment collection and verification
 
 ## Environment setup
 
-Copy `.env.example` to `.env.local` for frontend variables and `.env` for backend variables, or set the variables in your host dashboard.
+Copy `.env.example` to `.env.local` for local frontend variables and/or `.env` for backend variables.
 
-Required variables:
+Required payment variables:
 
 ```bash
 VITE_PAYSTACK_PUBLIC_KEY="pk_test_your_paystack_public_key"
 PAYSTACK_SECRET_KEY="sk_test_your_paystack_secret_key"
-SUPABASE_URL="https://your-project.supabase.co"
-SUPABASE_SERVICE_ROLE_KEY="your_supabase_service_role_key"
 ```
 
-Optional variables:
+Optional backend variables:
 
 ```bash
 PORT="4000"
+DATA_DIR="./server/data"
 VITE_API_BASE_URL=""
 ```
 
@@ -67,9 +58,9 @@ npm start
 
 ## Backend API
 
-- `GET /api/health` returns backend health status and whether Supabase env vars are configured.
+- `GET /api/health` returns backend health status.
 - `GET /api/courses` returns the course catalog used by the app.
-- `POST /api/bookings` verifies the Paystack reference when `PAYSTACK_SECRET_KEY` is set, then stores the paid booking in Supabase.
-- `POST /api/contacts` stores contact form submissions in Supabase.
+- `POST /api/bookings` stores a paid booking after Paystack checkout. If `PAYSTACK_SECRET_KEY` is configured, the backend verifies the Paystack reference before saving the booking record.
+- `POST /api/contacts` stores contact form submissions.
 
-The backend uses the Supabase REST API with the service-role key. This keeps privileged database writes on the server instead of exposing Supabase credentials in the browser.
+Records are stored as JSON files in `DATA_DIR` so the site has a working backend without adding a database service yet. The default `server/data/` folder is git-ignored.
