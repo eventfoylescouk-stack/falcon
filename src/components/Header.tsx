@@ -1,13 +1,17 @@
 import React, { useState } from 'react';
-import { Menu, X, Phone, ShieldCheck } from 'lucide-react';
+import { Menu, X, Phone, ShieldCheck, UserCheck, LogOut } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { UserProfile } from '../lib/authService';
 
 interface HeaderProps {
   currentPage: string;
   setCurrentPage: (page: string) => void;
+  currentUser?: UserProfile | null;
+  onLogout?: () => void;
+  setAuthViewMode?: (view: 'signin' | 'signup') => void;
 }
 
-export function Header({ currentPage, setCurrentPage }: HeaderProps) {
+export function Header({ currentPage, setCurrentPage, currentUser, onLogout, setAuthViewMode }: HeaderProps) {
   const [isOpen, setIsOpen] = useState(false);
 
   const navItems = [
@@ -87,13 +91,58 @@ export function Header({ currentPage, setCurrentPage }: HeaderProps) {
               );
             })}
             
-            <button
-              onClick={() => handleNavClick('signup')}
-              id="header-cta-signup"
-              className="ml-4 px-5 py-2.5 bg-neutral-900 hover:bg-neutral-800 text-white font-sans font-semibold text-sm rounded-lg transition-all shadow-md hover:shadow-lg flex items-center gap-1.5 border border-transparent duration-300 cursor-pointer hover:border-emerald-500"
-            >
-              Get Started
-            </button>
+            {currentUser ? (
+              <div className="flex items-center gap-3 ml-4">
+                <button
+                  onClick={() => handleNavClick('signup')}
+                  id="header-cta-book-direct"
+                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-neutral-950 font-sans font-bold text-sm rounded-lg transition-all shadow-md hover:shadow-lg flex items-center gap-1.5 duration-300 cursor-pointer"
+                >
+                  Book Lesson
+                </button>
+                <div className="flex items-center gap-3 bg-emerald-50/80 border border-emerald-100 px-4 py-2 rounded-xl">
+                  <UserCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <div className="flex flex-col text-left">
+                    <span className="font-sans font-bold text-xs text-neutral-800 leading-none">
+                      {currentUser.fullName.split(' ')[0]}
+                    </span>
+                    <span className="font-mono text-[9px] text-emerald-700 font-bold uppercase tracking-wider leading-none mt-0.5">
+                      Verified
+                    </span>
+                  </div>
+                  <button
+                    onClick={onLogout}
+                    title="Sign Out"
+                    className="p-1 text-neutral-500 hover:text-red-600 transition-colors ml-1 cursor-pointer"
+                  >
+                    <LogOut className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    if (setAuthViewMode) setAuthViewMode('signin');
+                    handleNavClick('auth');
+                  }}
+                  id="header-cta-signin"
+                  className="ml-4 px-4 py-2 hover:bg-neutral-50 text-neutral-700 font-sans font-bold text-sm rounded-lg transition-colors cursor-pointer"
+                >
+                  Sign In
+                </button>
+                <button
+                  onClick={() => {
+                    if (setAuthViewMode) setAuthViewMode('signup');
+                    handleNavClick('auth');
+                  }}
+                  id="header-cta-signup"
+                  className="px-5 py-2.5 bg-neutral-900 hover:bg-neutral-800 text-white font-sans font-semibold text-sm rounded-lg transition-all shadow-md hover:shadow-lg flex items-center gap-1.5 border border-transparent duration-300 cursor-pointer hover:border-emerald-500"
+                >
+                  Sign Up
+                </button>
+              </div>
+            )}
           </nav>
 
           {/* Mobile menu button */}
@@ -140,12 +189,58 @@ export function Header({ currentPage, setCurrentPage }: HeaderProps) {
               })}
               
               <div className="pt-2">
-                <button
-                  onClick={() => handleNavClick('signup')}
-                  className="w-full text-center py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-sans font-semibold text-base rounded-lg shadow-sm transition-all duration-300"
-                >
-                  Sign Up / Register Today
-                </button>
+                {currentUser ? (
+                  <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-full bg-emerald-500 text-neutral-900 font-bold flex items-center justify-center text-xs">
+                        {currentUser.fullName.split(' ')[0][0]}
+                      </div>
+                      <div className="text-left">
+                        <p className="font-sans font-bold text-sm text-neutral-950 leading-none">{currentUser.fullName}</p>
+                        <p className="font-mono text-[9px] text-emerald-700 font-bold uppercase tracking-wider mt-1">{currentUser.email} • Verified</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => {
+                        handleNavClick('signup');
+                      }}
+                      className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-neutral-950 font-sans font-bold text-sm rounded-lg flex items-center justify-center gap-2 shadow-xs"
+                    >
+                      Book a Lesson
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (onLogout) onLogout();
+                        setIsOpen(false);
+                      }}
+                      className="w-full py-2 bg-neutral-900 text-white font-sans font-bold text-xs uppercase tracking-wider rounded-lg flex items-center justify-center gap-2"
+                    >
+                      Sign Out
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <button
+                      onClick={() => {
+                        if (setAuthViewMode) setAuthViewMode('signin');
+                        handleNavClick('auth');
+                      }}
+                      className="w-full text-center py-2.5 border border-neutral-300 text-neutral-800 hover:bg-neutral-50 font-sans font-bold text-sm rounded-lg transition-all"
+                    >
+                      Sign In to Account
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (setAuthViewMode) setAuthViewMode('signup');
+                        handleNavClick('auth');
+                      }}
+                      className="w-full text-center py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-sans font-semibold text-base rounded-lg shadow-sm transition-all duration-300"
+                    >
+                      Sign Up & Register
+                    </button>
+                  </div>
+                )}
+                
                 <div className="mt-4 flex flex-col gap-1 items-center justify-center text-xs text-neutral-500 font-sans">
                   <p>Suite B8, AYM Shafa Petrol Station, Wuye, Abuja</p>
                   <p className="font-semibold text-emerald-600 mt-1">0802-895-5522</p>
