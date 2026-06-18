@@ -3,7 +3,7 @@ import { COURSES } from '../data';
 import { BookingSubmission } from '../types';
 import { BookmarkCheck, Send, CheckCircle2, Copy, ExternalLink, CalendarDays, PhoneCall, HelpCircle, CloudLightning, CreditCard, Lock, Sparkles, AlertCircle } from 'lucide-react';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
-import { initializePayment, openPaystackCheckoutModal, openPaystackInlineCheckout } from '../lib/paymentService';
+import { initializePayment, openPaystackCheckoutModal } from '../lib/paymentService';
 import { UserProfile } from '../lib/authService';
 
 interface BookingProps {
@@ -178,7 +178,6 @@ export function Booking({ setCurrentPage, selectedCourseId, setSelectedCourseId,
         notes: submittedData?.notes || ''
       };
 
-    try {
       const data = await initializePayment(payload);
 
       if (data.status && data.authorizationUrl) {

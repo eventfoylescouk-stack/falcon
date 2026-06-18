@@ -246,20 +246,27 @@ async function startServer() {
       const metadata = pmData.metadata;
       const amountNaira = pmData.amount / 100;
 
-      const newBooking: VerifiedBooking = {
-        id: "bk_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
-        fullName: metadata.fullName || "Student Athlete",
-        phone: metadata.phone || "N/A",
-        email: pmData.customer.email,
-        courseId: metadata.courseId || "basic-intensive",
-        schedule: metadata.schedule || "weekday-morning",
-        notes: metadata.notes || "",
-        reference,
-        amount: amountNaira,
-        status: "paid",
-        createdAt: new Date().toISOString(),
-        paidAt: new Date().toISOString()
-      };
+      const db = getDb();
+
+      // Check if reference already processed to prevent duplications
+      if (!db.verifiedReferences.includes(reference)) {
+        db.verifiedReferences.push(reference);
+
+        // Add verified booking record
+        const newBooking: VerifiedBooking = {
+          id: "bk_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
+          fullName: metadata.fullName || "Student Athlete",
+          phone: metadata.phone || "N/A",
+          email: pmData.customer.email,
+          courseId: metadata.courseId || "basic-intensive",
+          schedule: metadata.schedule || "weekday-morning",
+          notes: metadata.notes || "",
+          reference,
+          amount: amountNaira,
+          status: "paid",
+          createdAt: new Date().toISOString(),
+          paidAt: new Date().toISOString()
+        };
 
       await upsertPaidBooking(newBooking);
       console.log(`[Paystack Server] SECURELY VERIFIED & LOGGED: Booking of ${newBooking.fullName} (${newBooking.email})`);
@@ -334,7 +341,7 @@ async function startServer() {
         booking.paidAt = booking.paidAt || new Date().toISOString();
       }
 
-      await upsertPaidBooking(booking);
+      saveDb(db);
       return res.json({ status: true, verified: true, booking });
 
     } catch (err: any) {
@@ -405,8 +412,9 @@ async function startServer() {
         booking.paidAt = booking.paidAt || new Date().toISOString();
       }
 
-      await upsertPaidBooking(booking);
-      await markWebhookProcessed(reference);
+      if (!db.verifiedReferences.includes(reference)) db.verifiedReferences.push(reference);
+      db.webhookReferences.push(reference);
+      saveDb(db);
 
       return res.json({ status: true, processed: true });
     } catch (err: any) {
