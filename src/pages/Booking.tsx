@@ -3,6 +3,7 @@ import { COURSES } from '../data';
 import { BookingSubmission } from '../types';
 import { BookmarkCheck, Send, CheckCircle2, Copy, ExternalLink, CalendarDays, PhoneCall, HelpCircle, CloudLightning, CreditCard, Lock, Sparkles, AlertCircle } from 'lucide-react';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { initializePayment, openPaystackCheckoutModal } from '../lib/paymentService';
 import { UserProfile } from '../lib/authService';
 
 interface BookingProps {
@@ -32,6 +33,7 @@ export function Booking({ setCurrentPage, selectedCourseId, setSelectedCourseId,
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [paymentConfirmation, setPaymentConfirmation] = useState<{ reference: string; amount: number; status: string; date: string } | null>(null);
   const [paymentOption, setPaymentOption] = useState<'deposit' | 'full'>('full');
+  const [hasAutoPromptedCheckout, setHasAutoPromptedCheckout] = useState(false);
 
   // Auto-scroll to top and prefill authenticated user details if logged in
   useEffect(() => {
@@ -42,6 +44,15 @@ export function Booking({ setCurrentPage, selectedCourseId, setSelectedCourseId,
       setEmail(currentUser.email);
     }
   }, [currentUser]);
+
+
+  useEffect(() => {
+    if (!isSubmitted || !submittedData || hasAutoPromptedCheckout || paymentConfirmation) return;
+
+    setHasAutoPromptedCheckout(true);
+    const fullCourseFee = COURSES.find(c => c.id === submittedData.courseId)?.price || COURSES[0].price;
+    handlePaystackPayment(fullCourseFee);
+  }, [isSubmitted, submittedData, hasAutoPromptedCheckout, paymentConfirmation]);
 
   const handleCopyBank = () => {
     navigator.clipboard.writeText("8028955522");
@@ -168,24 +179,14 @@ export function Booking({ setCurrentPage, selectedCourseId, setSelectedCourseId,
         notes: submittedData?.notes || ''
       };
 
-      const res = await fetch('/api/payment/initialize', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(payload)
-      });
+      const data = await initializePayment(payload);
 
-      if (!res.ok) {
-        const errorJson = await res.json().catch(() => ({}));
-        throw new Error(errorJson.message || 'Server failed to initialize payment session.');
-      }
-
-      const data = await res.json();
       if (data.status && data.authorizationUrl) {
-        console.log(`[Frontend] Booking initialized securely. Redirecting to Paystack: ${data.authorizationUrl}`);
-        // Redirect browser to secure checkout
-        window.location.href = data.authorizationUrl;
+        console.log(`[Frontend] Booking initialized securely. Opening Paystack checkout modal: ${data.authorizationUrl}`);
+        const checkoutWindow = openPaystackCheckoutModal(data.authorizationUrl);
+        if (!checkoutWindow) {
+          window.location.href = data.authorizationUrl;
+        }
       } else {
         throw new Error(data.message || 'Failed to setup secure checkout URL.');
       }

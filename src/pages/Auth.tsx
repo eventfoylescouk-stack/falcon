@@ -104,6 +104,14 @@ export function Auth({ setCurrentPage, onLoginSuccess, initialView }: AuthProps)
 
     setIsLoading(true);
     try {
+      const validation = await authService.validateCredentialsAcrossStores(email, password);
+      if (!validation.localUser) {
+        throw new Error('No matching local student profile exists for this email. Please complete sign up first.');
+      }
+      if (!validation.isValid) {
+        throw new Error('Email/password was rejected by both Supabase Auth and the local users table.');
+      }
+
       const user = await authService.signIn(email, password);
       
       // Login success

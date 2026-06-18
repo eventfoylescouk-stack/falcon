@@ -155,39 +155,57 @@ export const authService = {
   },
 
   /**
-   * Sign In an existing user.
-   * If they are not verified, throws a custom verification-required error.
+   * Explicitly validate credentials against Supabase Auth (when configured) and the local users table.
    */
-  async signIn(email: string, password?: string) {
+  async validateCredentialsAcrossStores(email: string, password?: string) {
     const normalizedEmail = email.toLowerCase().trim();
+    const users = getLocalUsers();
+    const localUser = users.find(u => u.email === normalizedEmail);
+    const localPasswordMatches = !!localUser && !!password && (localUser.password || 'password123') === password;
 
-    // 1. Supabase validation if active
+    let supabasePasswordMatches = false;
+    let supabaseMessage = 'Supabase is not configured.';
+
     if (supabase) {
       try {
         const { error } = await supabase.auth.signInWithPassword({
           email: normalizedEmail,
           password: password || '',
         });
-        if (error) {
-          console.warn("Supabase auth check failed, using local profile state", error.message);
-        }
+        supabasePasswordMatches = !error;
+        supabaseMessage = error?.message || 'Supabase Auth credentials accepted.';
       } catch (err: any) {
-        console.warn("Supabase connection failed, checking local fallback status", err);
+        supabaseMessage = err?.message || 'Supabase Auth check failed.';
       }
     }
 
-    // 2. Fetch profile from local directory
-    const users = getLocalUsers();
-    const user = users.find(u => u.email === normalizedEmail);
+    return {
+      normalizedEmail,
+      localUser,
+      localPasswordMatches,
+      supabasePasswordMatches,
+      supabaseMessage,
+      isValid: localPasswordMatches || supabasePasswordMatches,
+    };
+  },
+
+  /**
+   * Sign In an existing user.
+   * If they are not verified, throws a custom verification-required error.
+   */
+  async signIn(email: string, password?: string) {
+    const normalizedEmail = email.toLowerCase().trim();
+
+    const validation = await this.validateCredentialsAcrossStores(normalizedEmail, password);
+    const user = validation.localUser;
 
     if (!user) {
-      throw new Error('No registered account found with this email in Wuye, Abuja records. Please sign up first.');
+      throw new Error('No registered local profile found for this email. Please sign up first so your student record can be linked.');
     }
 
-    // Checking password strictly against the stored database record
-    const storedPassword = user.password || 'password123';
-    if (!password || storedPassword !== password) {
-      throw new Error('Incorrect password. Please verify and try again.');
+    if (!validation.isValid) {
+      console.warn('Credential validation failed across Supabase Auth and local users table:', validation.supabaseMessage);
+      throw new Error('Incorrect password. Please verify your Supabase Auth and local profile credentials.');
     }
 
     if (!user.isVerified) {
