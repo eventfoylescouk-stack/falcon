@@ -6,3 +6,54 @@ Create a backend handler for '/api/payment/verify-status' that securely validate
 Add a webhook endpoint '/api/webhooks/paystack' that validates the 'x-paystack-signature', checks for duplicate transaction references, and updates the user's booking status to 'paid' in the database asynchronously.
 
 Refactor the 'Auth' page to explicitly check the Supabase auth table and a local users table for email/password validation, and ensure the redirect logic in App.tsx reliably pushes authenticated users to the dashboard instead of back to the signup flow.
+
+
+
+
+
+17:43:16.026 Running build in Washington, D.C., USA (East) – iad1
+17:43:16.027 Build machine configuration: 2 cores, 8 GB
+17:43:16.185 Cloning github.com/eventfoylescouk-stack/falcon (Branch: main, Commit: 1532342)
+17:43:16.962 Cloning completed: 776.000ms
+17:43:17.216 Restored build cache from previous deployment (F5Uv7T93YetwMXB3eVUKCbnM3HJV)
+17:43:17.506 Running "vercel build"
+17:43:17.523 Vercel CLI 54.14.0
+17:43:18.092 Installing dependencies...
+17:43:19.127 
+17:43:19.128 up to date in 915ms
+17:43:19.128 
+17:43:19.129 35 packages are looking for funding
+17:43:19.129   run `npm fund` for details
+17:43:19.165 Running "npm run build"
+17:43:19.273 
+17:43:19.274 > react-example@0.0.0 build
+17:43:19.274 > vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs
+17:43:19.274 
+17:43:19.760 vite v6.4.3 building for production...
+17:43:19.854 transforming...
+17:43:20.371 ✓ 19 modules transformed.
+17:43:20.372 ✗ Build failed in 579ms
+17:43:20.372 error during build:
+17:43:20.373 [vite:esbuild] Transform failed with 1 error:
+17:43:20.373 /vercel/path0/src/pages/Booking.tsx:193:6: ERROR: Expected ";" but found "catch"
+17:43:20.373 file: /vercel/path0/src/pages/Booking.tsx:193:6
+17:43:20.373 
+17:43:20.373 Expected ";" but found "catch"
+17:43:20.373 191|        }
+17:43:20.373 192|  
+17:43:20.373 193|      } catch (err: any) {
+17:43:20.373    |        ^
+17:43:20.373 194|        console.warn("Backend Paystack initialization unavailable, trying public-key checkout for testing:", err);
+17:43:20.373 195|        try {
+17:43:20.373 
+17:43:20.374     at failureErrorWithLog (/vercel/path0/node_modules/esbuild/lib/main.js:1467:15)
+17:43:20.374     at /vercel/path0/node_modules/esbuild/lib/main.js:736:50
+17:43:20.374     at responseCallbacks.<computed> (/vercel/path0/node_modules/esbuild/lib/main.js:603:9)
+17:43:20.374     at handleIncomingPacket (/vercel/path0/node_modules/esbuild/lib/main.js:658:12)
+17:43:20.374     at Socket.readFromStdout (/vercel/path0/node_modules/esbuild/lib/main.js:581:7)
+17:43:20.374     at Socket.emit (node:events:509:28)
+17:43:20.374     at addChunk (node:internal/streams/readable:563:12)
+17:43:20.374     at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)
+17:43:20.374     at Readable.push (node:internal/streams/readable:394:5)
+17:43:20.374     at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)
+17:43:20.403 Error: Command "npm run build" exited with 1
