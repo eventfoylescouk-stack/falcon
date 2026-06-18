@@ -15,6 +15,7 @@ import {
   Car 
 } from 'lucide-react';
 import { HERO_IMAGE_URL, SIMULATOR_IMAGE_URL, STUDENT_SUCCESS_IMAGE_URL } from '../data';
+import { FAQSection } from '../components/FAQSection';
 
 interface HomeProps {
   setCurrentPage: (page: string) => void;
@@ -417,6 +418,9 @@ export function Home({ setCurrentPage }: HomeProps) {
 
         </div>
       </section>
+
+      {/* Interactive FAQ Accordion Section */}
+      <FAQSection />
 
       {/* 5. Quick Promotional banner */}
       <section className="py-16 bg-gradient-to-r from-emerald-600 via-neutral-900 to-amber-700 text-white relative overflow-hidden">
