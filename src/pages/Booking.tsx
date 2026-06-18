@@ -3,6 +3,7 @@ import { COURSES } from '../data';
 import { BookingSubmission } from '../types';
 import { BookmarkCheck, Send, CheckCircle2, Copy, ExternalLink, CalendarDays, PhoneCall, HelpCircle, CloudLightning, CreditCard, Lock, Sparkles, AlertCircle } from 'lucide-react';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { initializePayment, openPaystackCheckoutModal, openPaystackInlineCheckout } from '../lib/paymentService';
 import { UserProfile } from '../lib/authService';
 
 interface BookingProps {
@@ -32,6 +33,7 @@ export function Booking({ setCurrentPage, selectedCourseId, setSelectedCourseId,
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [paymentConfirmation, setPaymentConfirmation] = useState<{ reference: string; amount: number; status: string; date: string } | null>(null);
   const [paymentOption, setPaymentOption] = useState<'deposit' | 'full'>('full');
+  const [hasAutoPromptedCheckout, setHasAutoPromptedCheckout] = useState(false);
 
   // Auto-scroll to top and prefill authenticated user details if logged in
   useEffect(() => {
@@ -42,6 +44,15 @@ export function Booking({ setCurrentPage, selectedCourseId, setSelectedCourseId,
       setEmail(currentUser.email);
     }
   }, [currentUser]);
+
+
+  useEffect(() => {
+    if (!isSubmitted || !submittedData || hasAutoPromptedCheckout || paymentConfirmation) return;
+
+    setHasAutoPromptedCheckout(true);
+    const fullCourseFee = COURSES.find(c => c.id === submittedData.courseId)?.price || COURSES[0].price;
+    handlePaystackPayment(fullCourseFee);
+  }, [isSubmitted, submittedData, hasAutoPromptedCheckout, paymentConfirmation]);
 
   const handleCopyBank = () => {
     navigator.clipboard.writeText("8028955522");
@@ -152,48 +163,66 @@ export function Booking({ setCurrentPage, selectedCourseId, setSelectedCourseId,
     }
   };
 
-  // Call secure backend to initialize transaction and redirect
+  // Call secure backend to initialize transaction and redirect. If the backend
+  // cannot initialize because only a Paystack public key is configured, fall back
+  // to Paystack Inline so test checkouts can still open in the browser.
   const handlePaystackPayment = async (amountInNaira: number) => {
     setIsPaymentLoading(true);
     setPaymentError(null);
-    try {
-      const paymentEmail = submittedData?.email || email || currentUser?.email || 'student@falcon.academy';
-      const payload = {
-        amount: amountInNaira,
-        email: paymentEmail.toLowerCase().trim(),
-        courseId: submittedData?.courseId || selectedCourseId,
-        schedule: submittedData?.schedule || 'weekday-morning',
-        fullName: submittedData?.fullName || currentUser?.fullName || 'Driving Student',
-        phone: submittedData?.phone || currentUser?.phone || '08000000000',
-        notes: submittedData?.notes || ''
-      };
 
-      const res = await fetch('/api/payment/initialize', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(payload)
-      });
+    const paymentEmail = submittedData?.email || email || currentUser?.email || 'student@falcon.academy';
+    const payload = {
+      amount: amountInNaira,
+      email: paymentEmail.toLowerCase().trim(),
+      courseId: submittedData?.courseId || selectedCourseId,
+      schedule: submittedData?.schedule || 'weekday-morning',
+      fullName: submittedData?.fullName || currentUser?.fullName || 'Driving Student',
+      phone: submittedData?.phone || currentUser?.phone || '08000000000',
+      notes: submittedData?.notes || ''
+    };
 
-      if (!res.ok) {
-        const errorJson = await res.json().catch(() => ({}));
-        throw new Error(errorJson.message || 'Server failed to initialize payment session.');
-      }
+    const openBackendCheckout = async () => {
+      const data = await initializePayment(payload);
 
-      const data = await res.json();
-      if (data.status && data.authorizationUrl) {
-        console.log(`[Frontend] Booking initialized securely. Redirecting to Paystack: ${data.authorizationUrl}`);
-        // Redirect browser to secure checkout
-        window.location.href = data.authorizationUrl;
-      } else {
+      if (!data.status || !data.authorizationUrl) {
         throw new Error(data.message || 'Failed to setup secure checkout URL.');
       }
 
+      console.log(`[Frontend] Booking initialized securely. Opening Paystack checkout modal: ${data.authorizationUrl}`);
+      const checkoutWindow = openPaystackCheckoutModal(data.authorizationUrl);
+      if (!checkoutWindow) {
+        window.location.href = data.authorizationUrl;
+      }
+    };
+
+    const openPublicKeyFallbackCheckout = async () => {
+      await openPaystackInlineCheckout(
+        payload,
+        (response) => {
+          setPaymentConfirmation({
+            reference: response.reference,
+            amount: amountInNaira,
+            status: response.status || 'success',
+            date: new Date().toISOString()
+          });
+          setIsPaymentLoading(false);
+        },
+        () => setIsPaymentLoading(false)
+      );
+      setPaymentError('Testing mode: checkout opened with your pk_ public key. Add PAYSTACK_SECRET_KEY=sk_test_... when you want backend verification/webhooks to mark Supabase bookings as paid automatically.');
+    };
+
+    try {
+      await openBackendCheckout();
     } catch (err: any) {
-      console.error("Secure payment setup error:", err);
-      setPaymentError(err.message || "Failed to contact secure payment endpoint.");
-      setIsPaymentLoading(false);
+      console.warn('Backend Paystack initialization unavailable, trying public-key checkout for testing:', err);
+      try {
+        await openPublicKeyFallbackCheckout();
+      } catch (fallbackErr: any) {
+        console.error('Secure payment setup error:', fallbackErr);
+        setPaymentError(fallbackErr.message || err.message || 'Failed to contact secure payment endpoint.');
+        setIsPaymentLoading(false);
+      }
     }
   };
 
