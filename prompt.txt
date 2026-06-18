@@ -1,0 +1,8 @@
+Create a function in a new service file 'src/lib/paymentService.ts' that calls the backend '/api/payment/initialize' endpoint to get an authorization URL, and integrate this into the booking flow so that after a successful signup, the user is immediately prompted with the Paystack checkout modal before redirecting to the dashboard.
+
+
+Create a backend handler for '/api/payment/verify-status' that securely validates the Paystack transaction reference using the secret key, ensuring that booking details are only finalized in the database after a successful, verified status is returned.
+
+Add a webhook endpoint '/api/webhooks/paystack' that validates the 'x-paystack-signature', checks for duplicate transaction references, and updates the user's booking status to 'paid' in the database asynchronously.
+
+Refactor the 'Auth' page to explicitly check the Supabase auth table and a local users table for email/password validation, and ensure the redirect logic in App.tsx reliably pushes authenticated users to the dashboard instead of back to the signup flow.
