@@ -152,81 +152,47 @@ export function Booking({ setCurrentPage, selectedCourseId, setSelectedCourseId,
     }
   };
 
-  // Helper to dynamically inject Paystack Popups script
-  const loadPaystackScript = (): Promise<boolean> => {
-    return new Promise((resolve) => {
-      if ((window as any).PaystackPop) {
-        resolve(true);
-        return;
-      }
-      const script = document.createElement('script');
-      script.src = 'https://js.paystack.co/v1/inline.js';
-      script.async = true;
-      script.onload = () => resolve(true);
-      script.onerror = () => resolve(false);
-      document.body.appendChild(script);
-    });
-  };
-
-  // Paystack online process launcher
+  // Call secure backend to initialize transaction and redirect
   const handlePaystackPayment = async (amountInNaira: number) => {
     setIsPaymentLoading(true);
     setPaymentError(null);
     try {
-      const scriptLoaded = await loadPaystackScript();
-      if (!scriptLoaded) {
-        throw new Error("Unable to load securely the external Paystack component. Check your network.");
-      }
-
-      // Check for user-defined configuration, with an active fallback key for sandbox integrity
-      const publicKey = (import.meta as any).env?.VITE_PAYSTACK_PUBLIC_KEY || 'pk_test_d3c3488bd37053e1ce492c3008453412a843e9d8';
-
-      const paymentEmail = submittedData?.email || email || 'student@falcon.academy';
-      const reference = 'FALCON_PAY_' + Date.now() + '_' + Math.floor(Math.random() * 9000 + 1000);
-
-      const handler = (window as any).PaystackPop.setup({
-        key: publicKey,
+      const paymentEmail = submittedData?.email || email || currentUser?.email || 'student@falcon.academy';
+      const payload = {
+        amount: amountInNaira,
         email: paymentEmail.toLowerCase().trim(),
-        amount: Math.round(amountInNaira * 100), // convert to Kobo
-        currency: 'NGN',
-        ref: reference,
-        callback: function(response: any) {
-          console.log("[Paystack Successful Sync]:", response);
-          setPaymentConfirmation({
-            reference: response.reference || reference,
-            amount: amountInNaira,
-            status: 'success',
-            date: new Date().toLocaleDateString()
-          });
-          setIsPaymentLoading(false);
-          
-          // Instantly write to local storage as payment confirmation
-          try {
-            const currentPayInfo = {
-              reference: response.reference || reference,
-              amount: amountInNaira,
-              date: new Date().toLocaleDateString()
-            };
-            localStorage.setItem('falcon_last_payment_success', JSON.stringify(currentPayInfo));
-          } catch(e) {
-            console.warn("Could not sync local payment info:", e);
-          }
+        courseId: submittedData?.courseId || selectedCourseId,
+        schedule: submittedData?.schedule || 'weekday-morning',
+        fullName: submittedData?.fullName || currentUser?.fullName || 'Driving Student',
+        phone: submittedData?.phone || currentUser?.phone || '08000000000',
+        notes: submittedData?.notes || ''
+      };
 
-          // Automatically redirect student to their newly unlocked student dashboard
-          setTimeout(() => {
-            setCurrentPage('dashboard');
-          }, 1500);
+      const res = await fetch('/api/payment/initialize', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
         },
-        onClose: function() {
-          console.log("[Paystack Checkout Closed]");
-          setIsPaymentLoading(false);
-        }
+        body: JSON.stringify(payload)
       });
 
-      handler.openIframe();
+      if (!res.ok) {
+        const errorJson = await res.json().catch(() => ({}));
+        throw new Error(errorJson.message || 'Server failed to initialize payment session.');
+      }
+
+      const data = await res.json();
+      if (data.status && data.authorizationUrl) {
+        console.log(`[Frontend] Booking initialized securely. Redirecting to Paystack: ${data.authorizationUrl}`);
+        // Redirect browser to secure checkout
+        window.location.href = data.authorizationUrl;
+      } else {
+        throw new Error(data.message || 'Failed to setup secure checkout URL.');
+      }
+
     } catch (err: any) {
-      console.error("Paystack error:", err);
-      setPaymentError(err.message || "Failed to trigger Paystack checkout.");
+      console.error("Secure payment setup error:", err);
+      setPaymentError(err.message || "Failed to contact secure payment endpoint.");
       setIsPaymentLoading(false);
     }
   };

@@ -76,12 +76,12 @@ export function Auth({ setCurrentPage, onLoginSuccess, initialView }: AuthProps)
           setView('verify');
         }, 1500);
       } else {
-        setSuccessMessage("Welcome student! Account registered and authorized instantly. Redirecting to dashboard...");
+        setSuccessMessage("Welcome student! Account registered and authorized instantly. Redirecting to select course and pay...");
         if (onLoginSuccess && res.user) {
           onLoginSuccess(res.user);
         }
         setTimeout(() => {
-          setCurrentPage('dashboard');
+          setCurrentPage('signup');
         }, 1500);
       }
 
@@ -133,7 +133,7 @@ export function Auth({ setCurrentPage, onLoginSuccess, initialView }: AuthProps)
     try {
       const verified = await authService.confirmEmail(verificationEmail, activeCode);
       if (verified) {
-        setSuccessMessage("Email authenticated successfully! Logging you in...");
+        setSuccessMessage("Email authenticated successfully! Redirecting to select course and pay...");
         
         let loggedInUser = null;
         try {
@@ -154,7 +154,7 @@ export function Auth({ setCurrentPage, onLoginSuccess, initialView }: AuthProps)
         }
 
         setTimeout(() => {
-          setCurrentPage('dashboard');
+          setCurrentPage('signup');
           setVerificationCode('');
         }, 1500);
       }

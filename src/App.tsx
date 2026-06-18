@@ -26,11 +26,97 @@ export default function App() {
 
   // Route security guard: Require user registration/accounting before booking or dashboard
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const hasCallback = params.get('payment_status') && params.get('reference');
+    if (hasCallback) return; // Yield to payment verification process first
+
     if ((currentPage === 'signup' || currentPage === 'dashboard') && !currentUser) {
       setAuthViewMode('signup');
       setCurrentPage('auth');
     }
   }, [currentPage, currentUser]);
+
+  // Synchronously search for callback tokens from backend verified redirects
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const status = params.get('payment_status');
+    const reference = params.get('reference');
+
+    if (status && reference) {
+      console.log(`[App] Intercepted payment callback. status=${status}, ref=${reference}`);
+      
+      const verifyPaymentAndSync = async () => {
+        try {
+          // Call backend status verification API to ensure authenticity
+          const apiRes = await fetch(`/api/payment/verify-status?reference=${encodeURIComponent(reference)}`);
+          if (!apiRes.ok) throw new Error("Verification response not ok");
+          const resJson = await apiRes.json();
+
+          if (resJson.status && resJson.verified && resJson.booking) {
+            console.log("[App] Payment fully authenticated with backend!", resJson.booking);
+            
+            // Reconstruct booking object in exactly the structure expected by Dashboard.tsx
+            const verifiedBooking = {
+              fullName: resJson.booking.fullName,
+              phone: resJson.booking.phone,
+              email: resJson.booking.email,
+              courseId: resJson.booking.courseId,
+              schedule: resJson.booking.schedule,
+              notes: resJson.booking.notes,
+              reference: resJson.booking.reference,
+              amount: resJson.booking.amount
+            };
+
+            const payInfo = {
+              reference: resJson.booking.reference,
+              amount: resJson.booking.amount,
+              date: new Date(resJson.booking.createdAt).toLocaleDateString()
+            };
+
+            // Synchronize LocalStorage so dashboard resolves perfectly
+            localStorage.setItem('falcon_last_booking_success', JSON.stringify(verifiedBooking));
+            localStorage.setItem('falcon_last_payment_success', JSON.stringify(payInfo));
+
+            // Clean up the URL search parameters to make the current URL clean again
+            const cleanUrl = window.location.pathname;
+            window.history.replaceState({}, document.title, cleanUrl);
+
+            // Fetch the user session or mock profile matching this email if logged out
+            const allUsers = JSON.parse(localStorage.getItem('falcon_auth_users') || '[]');
+            const matchedUser = allUsers.find((u: any) => u.email.toLowerCase() === resJson.booking.email.toLowerCase());
+            
+            if (matchedUser) {
+              localStorage.setItem('falcon_auth_session', JSON.stringify(matchedUser));
+              setCurrentUser(matchedUser);
+            } else {
+              // Create local user profile if booked without previous profile
+              const newUser = {
+                id: 'usr_' + Date.now(),
+                fullName: resJson.booking.fullName,
+                phone: resJson.booking.phone,
+                email: resJson.booking.email,
+                isVerified: true,
+                createdAt: new Date().toISOString()
+              };
+              allUsers.push(newUser);
+              localStorage.setItem('falcon_auth_users', JSON.stringify(allUsers));
+              localStorage.setItem('falcon_auth_session', JSON.stringify(newUser));
+              setCurrentUser(newUser);
+            }
+
+            // Redirect smoothly to the dashboard!
+            setCurrentPage('dashboard');
+          } else {
+            console.warn("[App] Could not verify reference against backend records:", resJson);
+          }
+        } catch (e) {
+          console.error("Failed verification sync:", e);
+        }
+      };
+
+      verifyPaymentAndSync();
+    }
+  }, []);
 
   // Sync session and listen to real-time Supabase sign-in/verification callbacks
   useEffect(() => {
