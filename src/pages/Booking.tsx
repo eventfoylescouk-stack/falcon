@@ -167,9 +167,8 @@ export function Booking({ setCurrentPage, selectedCourseId, setSelectedCourseId,
   const handlePaystackPayment = async (amountInNaira: number) => {
     setIsPaymentLoading(true);
     setPaymentError(null);
-    try {
-      const paymentEmail = submittedData?.email || email || currentUser?.email || 'student@falcon.academy';
-      const payload = {
+    const paymentEmail = submittedData?.email || email || currentUser?.email || 'student@falcon.academy';
+    const payload = {
         amount: amountInNaira,
         email: paymentEmail.toLowerCase().trim(),
         courseId: submittedData?.courseId || selectedCourseId,
@@ -192,9 +191,23 @@ export function Booking({ setCurrentPage, selectedCourseId, setSelectedCourseId,
       }
 
     } catch (err: any) {
-      console.error("Secure payment setup error:", err);
-      setPaymentError(err.message || "Failed to contact secure payment endpoint.");
-      setIsPaymentLoading(false);
+      console.warn("Backend Paystack initialization unavailable, trying public-key checkout for testing:", err);
+      try {
+        await openPaystackInlineCheckout(payload, (response) => {
+          setPaymentConfirmation({
+            reference: response.reference,
+            amount: amountInNaira,
+            status: response.status || 'success',
+            date: new Date().toISOString()
+          });
+          setIsPaymentLoading(false);
+        }, () => setIsPaymentLoading(false));
+        setPaymentError('Testing mode: checkout opened with your pk_ public key. Add PAYSTACK_SECRET_KEY=sk_test_... when you want backend verification/webhooks to mark Supabase bookings as paid automatically.');
+      } catch (fallbackErr: any) {
+        console.error("Secure payment setup error:", fallbackErr);
+        setPaymentError(fallbackErr.message || err.message || "Failed to contact secure payment endpoint.");
+        setIsPaymentLoading(false);
+      }
     }
   };
 

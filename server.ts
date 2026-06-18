@@ -1,11 +1,71 @@
+import "dotenv/config";
 import express from "express";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
 import { createServer as createViteServer } from "vite";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 // Define server-side database path for verified transactions
 const DB_FILE = path.join(process.cwd(), "bookings_db.json");
+
+function getServerSupabase(): SupabaseClient | null {
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
+
+  if (!supabaseUrl || !supabaseKey) {
+    return null;
+  }
+
+  return createClient(supabaseUrl, supabaseKey, {
+    auth: { persistSession: false, autoRefreshToken: false }
+  });
+}
+
+function toBookingRow(booking: VerifiedBooking) {
+  return {
+    full_name: booking.fullName,
+    phone: booking.phone,
+    email: booking.email,
+    course_id: booking.courseId,
+    schedule: booking.schedule,
+    notes: booking.notes || null,
+    reference: booking.reference,
+    amount: booking.amount,
+    status: booking.status,
+    paid_at: booking.paidAt || null
+  };
+}
+
+async function upsertPaidBooking(booking: VerifiedBooking) {
+  const supabase = getServerSupabase();
+  if (!supabase) {
+    const db = getDb();
+    const existing = db.bookings.find(b => b.reference === booking.reference);
+    if (existing) Object.assign(existing, booking, { paidAt: existing.paidAt || booking.paidAt });
+    else db.bookings.push(booking);
+    if (!db.verifiedReferences.includes(booking.reference)) db.verifiedReferences.push(booking.reference);
+    saveDb(db);
+    return;
+  }
+
+  const { error } = await supabase
+    .from("bookings")
+    .upsert(toBookingRow(booking), { onConflict: "reference" });
+
+  if (error) {
+    throw new Error(`Supabase booking upsert failed: ${error.message}`);
+  }
+}
+
+async function markWebhookProcessed(reference: string): Promise<boolean> {
+  const db = getDb();
+  db.webhookReferences = db.webhookReferences || [];
+  if (db.webhookReferences.includes(reference)) return false;
+  db.webhookReferences.push(reference);
+  saveDb(db);
+  return true;
+}
 
 interface VerifiedBooking {
   id: string;
@@ -58,9 +118,24 @@ async function startServer() {
   app.use(express.json());
 
   // Paystack Keys Setup
-  // Fallback to a valid test secret key so that development/sandbox integration builds are fully seamless
+  // Server-side Paystack calls require a secret key. Support the deployed names currently used by this app.
   const getPaystackSecretKey = () => {
-    return process.env.PAYSTACK_SECRET_KEY || "sk_test_65df0e58dc2c1a0be5fbdf6d6e2798539097ee79";
+    const key = (
+      process.env.PAYSTACK_SECRET_KEY ||
+      process.env.VITE_PAYSTACK_SECRET_KEY ||
+      process.env.VITE_PAYSTACK_ANON_KEY ||
+      ""
+    ).trim();
+
+    if (!key) {
+      throw new Error("Missing Paystack secret key. Set PAYSTACK_SECRET_KEY or VITE_PAYSTACK_ANON_KEY in .env.");
+    }
+
+    if (key.startsWith("pk_")) {
+      throw new Error("Your current Paystack key is a public key (pk_...). Public keys are only for browser checkout testing. Add PAYSTACK_SECRET_KEY=sk_test_... for backend initialization, verification, and webhooks.");
+    }
+
+    return key;
   };
 
   // API 1: Initialize transaction with backend Paystack call
@@ -193,10 +268,8 @@ async function startServer() {
           paidAt: new Date().toISOString()
         };
 
-        db.bookings.push(newBooking);
-        saveDb(db);
-        console.log(`[Paystack Server] SECURELY VERIFIED & LOGGED: Booking of ${newBooking.fullName} (${newBooking.email})`);
-      }
+      await upsertPaidBooking(newBooking);
+      console.log(`[Paystack Server] SECURELY VERIFIED & LOGGED: Booking of ${newBooking.fullName} (${newBooking.email})`);
 
       // Redirect client back with verification approval query markers
       return res.redirect(`${cleanHost}/?payment_status=success&reference=${reference}&amount=${amountNaira}`);
