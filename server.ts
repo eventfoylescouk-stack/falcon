@@ -4,9 +4,68 @@ import path from "path";
 import fs from "fs";
 import crypto from "crypto";
 import { createServer as createViteServer } from "vite";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 // Define server-side database path for verified transactions
 const DB_FILE = path.join(process.cwd(), "bookings_db.json");
+
+function getServerSupabase(): SupabaseClient | null {
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
+
+  if (!supabaseUrl || !supabaseKey) {
+    return null;
+  }
+
+  return createClient(supabaseUrl, supabaseKey, {
+    auth: { persistSession: false, autoRefreshToken: false }
+  });
+}
+
+function toBookingRow(booking: VerifiedBooking) {
+  return {
+    full_name: booking.fullName,
+    phone: booking.phone,
+    email: booking.email,
+    course_id: booking.courseId,
+    schedule: booking.schedule,
+    notes: booking.notes || null,
+    reference: booking.reference,
+    amount: booking.amount,
+    status: booking.status,
+    paid_at: booking.paidAt || null
+  };
+}
+
+async function upsertPaidBooking(booking: VerifiedBooking) {
+  const supabase = getServerSupabase();
+  if (!supabase) {
+    const db = getDb();
+    const existing = db.bookings.find(b => b.reference === booking.reference);
+    if (existing) Object.assign(existing, booking, { paidAt: existing.paidAt || booking.paidAt });
+    else db.bookings.push(booking);
+    if (!db.verifiedReferences.includes(booking.reference)) db.verifiedReferences.push(booking.reference);
+    saveDb(db);
+    return;
+  }
+
+  const { error } = await supabase
+    .from("bookings")
+    .upsert(toBookingRow(booking), { onConflict: "reference" });
+
+  if (error) {
+    throw new Error(`Supabase booking upsert failed: ${error.message}`);
+  }
+}
+
+async function markWebhookProcessed(reference: string): Promise<boolean> {
+  const db = getDb();
+  db.webhookReferences = db.webhookReferences || [];
+  if (db.webhookReferences.includes(reference)) return false;
+  db.webhookReferences.push(reference);
+  saveDb(db);
+  return true;
+}
 
 interface VerifiedBooking {
   id: string;
@@ -73,7 +132,7 @@ async function startServer() {
     }
 
     if (key.startsWith("pk_")) {
-      throw new Error("Paystack initialization requires a secret key (sk_...). VITE_PAYSTACK_PUBLIC_KEY cannot be used for backend verification.");
+      throw new Error("Your current Paystack key is a public key (pk_...). Public keys are only for browser checkout testing. Add PAYSTACK_SECRET_KEY=sk_test_... for backend initialization, verification, and webhooks.");
     }
 
     return key;
@@ -187,32 +246,23 @@ async function startServer() {
       const metadata = pmData.metadata;
       const amountNaira = pmData.amount / 100;
 
-      const db = getDb();
+      const newBooking: VerifiedBooking = {
+        id: "bk_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
+        fullName: metadata.fullName || "Student Athlete",
+        phone: metadata.phone || "N/A",
+        email: pmData.customer.email,
+        courseId: metadata.courseId || "basic-intensive",
+        schedule: metadata.schedule || "weekday-morning",
+        notes: metadata.notes || "",
+        reference,
+        amount: amountNaira,
+        status: "paid",
+        createdAt: new Date().toISOString(),
+        paidAt: new Date().toISOString()
+      };
 
-      // Check if reference already processed to prevent duplications
-      if (!db.verifiedReferences.includes(reference)) {
-        db.verifiedReferences.push(reference);
-
-        // Add verified booking record
-        const newBooking: VerifiedBooking = {
-          id: "bk_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
-          fullName: metadata.fullName || "Student Athlete",
-          phone: metadata.phone || "N/A",
-          email: pmData.customer.email,
-          courseId: metadata.courseId || "basic-intensive",
-          schedule: metadata.schedule || "weekday-morning",
-          notes: metadata.notes || "",
-          reference,
-          amount: amountNaira,
-          status: "paid",
-          createdAt: new Date().toISOString(),
-          paidAt: new Date().toISOString()
-        };
-
-        db.bookings.push(newBooking);
-        saveDb(db);
-        console.log(`[Paystack Server] SECURELY VERIFIED & LOGGED: Booking of ${newBooking.fullName} (${newBooking.email})`);
-      }
+      await upsertPaidBooking(newBooking);
+      console.log(`[Paystack Server] SECURELY VERIFIED & LOGGED: Booking of ${newBooking.fullName} (${newBooking.email})`);
 
       // Redirect client back with verification approval query markers
       return res.redirect(`${cleanHost}/?payment_status=success&reference=${reference}&amount=${amountNaira}`);
@@ -284,7 +334,7 @@ async function startServer() {
         booking.paidAt = booking.paidAt || new Date().toISOString();
       }
 
-      saveDb(db);
+      await upsertPaidBooking(booking);
       return res.json({ status: true, verified: true, booking });
 
     } catch (err: any) {
@@ -355,9 +405,8 @@ async function startServer() {
         booking.paidAt = booking.paidAt || new Date().toISOString();
       }
 
-      if (!db.verifiedReferences.includes(reference)) db.verifiedReferences.push(reference);
-      db.webhookReferences.push(reference);
-      saveDb(db);
+      await upsertPaidBooking(booking);
+      await markWebhookProcessed(reference);
 
       return res.json({ status: true, processed: true });
     } catch (err: any) {
