@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { COURSES } from '../data';
 import { BookingSubmission } from '../types';
+import { createBooking } from '../lib/api';
 import { BookmarkCheck, Send, CheckCircle2, ExternalLink, CalendarDays, PhoneCall, HelpCircle, LoaderCircle } from 'lucide-react';
 
 interface PaystackCallbackResponse {
@@ -134,11 +135,17 @@ export function Booking({ setCurrentPage, selectedCourseId, setSelectedCourseId 
             courseId: selectedCourseId,
             schedule
           },
-          callback: (response: PaystackCallbackResponse) => {
+          callback: async (response: PaystackCallbackResponse) => {
             const paidBooking: BookingSubmission = {
               ...booking,
               paymentReference: response.reference
             };
+            try {
+              await createBooking(paidBooking);
+            } catch (error) {
+              console.error('Backend booking save failed; keeping local backup only.', error);
+            }
+
             const existing = getStoredBookings();
             existing.push(paidBooking);
             localStorage.setItem('falcon_bookings', JSON.stringify(existing));
