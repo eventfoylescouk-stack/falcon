@@ -1,0 +1,59 @@
+Create a function in a new service file 'src/lib/paymentService.ts' that calls the backend '/api/payment/initialize' endpoint to get an authorization URL, and integrate this into the booking flow so that after a successful signup, the user is immediately prompted with the Paystack checkout modal before redirecting to the dashboard.
+
+
+Create a backend handler for '/api/payment/verify-status' that securely validates the Paystack transaction reference using the secret key, ensuring that booking details are only finalized in the database after a successful, verified status is returned.
+
+Add a webhook endpoint '/api/webhooks/paystack' that validates the 'x-paystack-signature', checks for duplicate transaction references, and updates the user's booking status to 'paid' in the database asynchronously.
+
+Refactor the 'Auth' page to explicitly check the Supabase auth table and a local users table for email/password validation, and ensure the redirect logic in App.tsx reliably pushes authenticated users to the dashboard instead of back to the signup flow.
+
+
+
+
+
+17:55:21.865 Running build in Washington, D.C., USA (East) – iad1
+17:55:21.866 Build machine configuration: 2 cores, 8 GB
+17:55:21.979 Cloning github.com/eventfoylescouk-stack/falcon (Branch: codex/implement-payment-flow-and-webhook-handling, Commit: 6a20bc7)
+17:55:22.439 Cloning completed: 460.000ms
+17:55:22.659 Restored build cache from previous deployment (4rihevjTksbGjHsjScJnnSeWYVB2)
+17:55:22.867 Running "vercel build"
+17:55:22.893 Vercel CLI 54.14.0
+17:55:23.757 Installing dependencies...
+17:55:24.874 
+17:55:24.875 up to date in 980ms
+17:55:24.875 
+17:55:24.876 35 packages are looking for funding
+17:55:24.876   run `npm fund` for details
+17:55:24.912 Running "npm run build"
+17:55:25.015 
+17:55:25.016 > react-example@0.0.0 build
+17:55:25.016 > vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs
+17:55:25.016 
+17:55:25.373 vite v6.4.3 building for production...
+17:55:25.465 transforming...
+17:55:26.018 ✓ 20 modules transformed.
+17:55:26.021 ✗ Build failed in 616ms
+17:55:26.022 error during build:
+17:55:26.022 [vite:esbuild] Transform failed with 1 error:
+17:55:26.023 /vercel/path0/src/pages/Booking.tsx:214:6: ERROR: "await" can only be used inside an "async" function
+17:55:26.023 file: /vercel/path0/src/pages/Booking.tsx:214:6
+17:55:26.024 
+17:55:26.024 "await" can only be used inside an "async" function
+17:55:26.024 212|  
+17:55:26.025 213|      try {
+17:55:26.025 214|        await openBackendCheckout();
+17:55:26.025    |        ^
+17:55:26.025 215|      } catch (err: any) {
+17:55:26.026 216|        console.warn("Backend Paystack initialization unavailable, trying public-key checkout for testing:", err);
+17:55:26.026 
+17:55:26.026     at failureErrorWithLog (/vercel/path0/node_modules/esbuild/lib/main.js:1467:15)
+17:55:26.026     at /vercel/path0/node_modules/esbuild/lib/main.js:736:50
+17:55:26.027     at responseCallbacks.<computed> (/vercel/path0/node_modules/esbuild/lib/main.js:603:9)
+17:55:26.027     at handleIncomingPacket (/vercel/path0/node_modules/esbuild/lib/main.js:658:12)
+17:55:26.027     at Socket.readFromStdout (/vercel/path0/node_modules/esbuild/lib/main.js:581:7)
+17:55:26.028     at Socket.emit (node:events:509:28)
+17:55:26.028     at addChunk (node:internal/streams/readable:563:12)
+17:55:26.028     at readableAddChunkPushByteMode (node:internal/streams/readable:514:3)
+17:55:26.028     at Readable.push (node:internal/streams/readable:394:5)
+17:55:26.029     at Pipe.onStreamRead (node:internal/stream_base_commons:189:23)
+17:55:26.063 Error: Command "npm run build" exited with 1

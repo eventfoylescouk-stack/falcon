@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Falcon Driving School | Wuye, Abuja</title>
+    <script>
+      // Safeguard window.fetch from throwing "Cannot set property fetch of #<Window>" errors
+      (function() {
+        try {
+          var originalFetch = window.fetch;
+          var customFetch = originalFetch;
+          Object.defineProperty(window, 'fetch', {
+            get: function() {
+              return customFetch;
+            },
+            set: function(val) {
+              customFetch = val;
+            },
+            configurable: true,
+            enumerable: true
+          });
+        } catch (err) {
+          console.warn("Could not redefine window.fetch directly, trying prototype:", err);
+          try {
+            var proto = Object.getPrototypeOf(window);
+            if (proto) {
+              var protoFetch = proto.fetch || window.fetch;
+              var customProtoFetch = protoFetch;
+              Object.defineProperty(proto, 'fetch', {
+                get: function() {
+                  return customProtoFetch;
+                },
+                set: function(val) {
+                  customProtoFetch = val;
+                },
+                configurable: true,
+                enumerable: true
+              });
+            }
+          } catch (errProto) {
+            console.error("Failed to safeguard fetch:", errProto);
+          }
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

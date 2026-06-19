@@ -1,0 +1,112 @@
+{
+  "verifiedReferences": [
+    "AUTH_PAY_1781869895578_9722",
+    "AUTH_PAY_1781871082389_9809",
+    "AUTH_PAY_1781871649810_8390",
+    "AUTH_PAY_1781872539325_6844",
+    "AUTH_PAY_1781872625403_9647",
+    "AUTH_PAY_1781872677905_6070",
+    "AUTH_PAY_1781873821137_5740"
+  ],
+  "bookings": [
+    {
+      "id": "bk_1781869909374_593",
+      "fullName": "Kayode Amina",
+      "phone": "08022334455",
+      "email": "mibirof804@hotkev.com",
+      "courseId": "std_2w_beginners",
+      "schedule": "weekday-morning",
+      "notes": "",
+      "reference": "AUTH_PAY_1781869895578_9722",
+      "amount": 95000,
+      "status": "paid",
+      "createdAt": "2026-06-19T11:51:49.374Z",
+      "paidAt": "2026-06-19T11:51:49.374Z"
+    },
+    {
+      "id": "bk_1781871097089_484",
+      "fullName": "Amina Fawz",
+      "phone": "091234556",
+      "email": "tibodin552@hotkev.com",
+      "courseId": "std_2w_beginners",
+      "schedule": "weekday-morning",
+      "notes": "",
+      "reference": "AUTH_PAY_1781871082389_9809",
+      "amount": 95000,
+      "status": "paid",
+      "createdAt": "2026-06-19T12:11:37.089Z",
+      "paidAt": "2026-06-19T12:11:37.089Z"
+    },
+    {
+      "id": "bk_1781871662102_213",
+      "fullName": "Amina 272727",
+      "phone": "122827127278",
+      "email": "nelet67588@hotkev.com",
+      "courseId": "std_2w_beginners",
+      "schedule": "weekday-morning",
+      "notes": "",
+      "reference": "AUTH_PAY_1781871649810_8390",
+      "amount": 95000,
+      "status": "paid",
+      "createdAt": "2026-06-19T12:21:02.102Z",
+      "paidAt": "2026-06-19T12:21:02.102Z"
+    },
+    {
+      "id": "bk_1781872548061_851",
+      "fullName": "Amina 272727",
+      "phone": "122827127278",
+      "email": "nelet67588@hotkev.com",
+      "courseId": "std_2w_beginners",
+      "schedule": "weekday-morning",
+      "notes": "",
+      "reference": "AUTH_PAY_1781872539325_6844",
+      "amount": 95000,
+      "status": "paid",
+      "createdAt": "2026-06-19T12:35:48.061Z",
+      "paidAt": "2026-06-19T12:35:48.061Z"
+    },
+    {
+      "id": "bk_1781872634256_849",
+      "fullName": "smart alll",
+      "phone": "09182828282",
+      "email": "boneb13984@hotkev.com",
+      "courseId": "std_2w_beginners",
+      "schedule": "weekday-morning",
+      "notes": "",
+      "reference": "AUTH_PAY_1781872625403_9647",
+      "amount": 95000,
+      "status": "paid",
+      "createdAt": "2026-06-19T12:37:14.256Z",
+      "paidAt": "2026-06-19T12:37:14.256Z"
+    },
+    {
+      "id": "bk_1781872686488_257",
+      "fullName": "smart alll",
+      "phone": "09182828282",
+      "email": "boneb13984@hotkev.com",
+      "courseId": "std_2w_beginners",
+      "schedule": "weekday-morning",
+      "notes": "",
+      "reference": "AUTH_PAY_1781872677905_6070",
+      "amount": 95000,
+      "status": "paid",
+      "createdAt": "2026-06-19T12:38:06.488Z",
+      "paidAt": "2026-06-19T12:38:06.488Z"
+    },
+    {
+      "id": "bk_1781873830152_787",
+      "fullName": "Nafisat",
+      "phone": "123456789",
+      "email": "catab78333@hotkev.com",
+      "courseId": "std_2w_beginners",
+      "schedule": "weekday-morning",
+      "notes": "",
+      "reference": "AUTH_PAY_1781873821137_5740",
+      "amount": 95000,
+      "status": "paid",
+      "createdAt": "2026-06-19T12:57:10.152Z",
+      "paidAt": "2026-06-19T12:57:10.152Z"
+    }
+  ],
+  "webhookReferences": []
+}
