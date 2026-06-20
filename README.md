@@ -1,8 +1,11 @@
-CREATE POLICY "Users can view own bookings"
-ON bookings
-FOR SELECT
-USING (auth.uid() = user_id);
 
+Before making any changes, take time to fully understand the application, its architecture, features, user flows, frontend, backend, database structure, and overall business logic.
+
+Perform a comprehensive review of the entire project and identify weaknesses, bottlenecks, bugs, security concerns, scalability issues, code quality problems, UI/UX gaps, and architectural limitations.
+
+The backend, frontend, database design, API structure, performance, security, and maintainability may all require improvements. Provide a detailed assessment first, explain your findings, and then recommend specific improvements in order of priority.
+
+Do not make assumptions or start implementing changes immediately. Analyze the application thoroughly, explain your understanding of how it works, and justify every recommendation before taking action.
 
 
 # Falcon
