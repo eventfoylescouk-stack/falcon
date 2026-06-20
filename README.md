@@ -1,3 +1,16 @@
+CREATE TABLE courses (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  duration TEXT NOT NULL,
+  price INTEGER NOT NULL,
+  category TEXT NOT NULL,
+  description TEXT,
+  active BOOLEAN DEFAULT true,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+
 # Falcon
 
 Falcon is a web application for visualizing and analyzing meteorological data. It provides a user-friendly interface for exploring weather patterns, forecasts, and historical trends.
