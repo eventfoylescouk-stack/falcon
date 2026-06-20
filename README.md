@@ -1,5 +1,7 @@
-ALTER TABLE bookings ENABLE ROW LEVEL SECURITY;
-
+CREATE POLICY "Users can view own bookings"
+ON bookings
+FOR SELECT
+USING (auth.uid() = user_id);
 
 
 
