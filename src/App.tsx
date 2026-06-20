@@ -95,26 +95,28 @@ export default function App() {
 
             // Fetch the user session or mock profile matching this email if logged out
             const allUsers = JSON.parse(localStorage.getItem('falcon_auth_users') || '[]');
-            const matchedUser = allUsers.find((u: any) => u.email.toLowerCase() === resJson.booking.email.toLowerCase());
-            
-            if (matchedUser) {
-              localStorage.setItem('falcon_auth_session', JSON.stringify(matchedUser));
-              setCurrentUser(matchedUser);
-            } else {
-              // Create local user profile if booked without previous profile
-              const newUser = {
-                id: 'usr_' + Date.now(),
-                fullName: resJson.booking.fullName,
-                phone: resJson.booking.phone,
-                email: resJson.booking.email,
-                isVerified: true,
-                createdAt: new Date().toISOString()
-              };
-              allUsers.push(newUser);
+            const pendingCheckout = JSON.parse(localStorage.getItem('falcon_pending_paid_signup') || 'null');
+            const pendingProfile = pendingCheckout?.pendingRegistration;
+            const bookingEmail = resJson.booking.email.toLowerCase();
+            const matchedUser = allUsers.find((u: any) => u.email.toLowerCase() === bookingEmail);
+            const dashboardUser = matchedUser || {
+              id: 'usr_' + Date.now(),
+              fullName: pendingProfile?.fullName || resJson.booking.fullName,
+              phone: pendingProfile?.phone || resJson.booking.phone,
+              email: pendingProfile?.email || resJson.booking.email,
+              isVerified: true,
+              createdAt: new Date().toISOString(),
+              ...(pendingProfile?.password ? { password: pendingProfile.password } : {})
+            };
+
+            if (!matchedUser) {
+              allUsers.push(dashboardUser);
               localStorage.setItem('falcon_auth_users', JSON.stringify(allUsers));
-              localStorage.setItem('falcon_auth_session', JSON.stringify(newUser));
-              setCurrentUser(newUser);
             }
+
+            localStorage.setItem('falcon_auth_session', JSON.stringify(dashboardUser));
+            localStorage.removeItem('falcon_pending_paid_signup');
+            setCurrentUser(dashboardUser);
 
             // Redirect smoothly to the dashboard!
             setCurrentPage('dashboard');

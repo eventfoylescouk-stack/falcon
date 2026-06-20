@@ -196,10 +196,11 @@ async function startServer() {
 
       const reference = "FALCON_P_" + Date.now() + "_" + Math.floor(Math.random() * 9000 + 1000);
       
-      // Determine the redirect callback URL dynamically from headers
-      const hostUrl = process.env.APP_URL || req.headers.referer || req.headers.origin || "http://localhost:3000";
-      // We clean trailing slashes from hostUrl
-      const cleanHost = hostUrl.replace(/\/$/, "");
+      // Determine the redirect callback URL from the app origin, not the current page path.
+      // Paystack requires an absolute callback URL; using Referer here can produce
+      // broken URLs such as /signup/api/payment/callback and prevent the app from
+      // returning students to their dashboard after payment.
+      const cleanHost = getAppBaseUrl(req);
       const callbackUrl = `${cleanHost}/api/payment/callback`;
 
       const paystackPayload = {
@@ -264,8 +265,7 @@ async function startServer() {
 
       console.log(`[Paystack Callback] Verifying transaction reference: ${reference}...`);
 
-      const hostUrl = process.env.APP_URL || req.headers.referer || req.headers.origin || "http://localhost:3000";
-      const cleanHost = hostUrl.split("?")[0].replace(/\/$/, "");
+      const cleanHost = getAppBaseUrl(req);
 
       const secretKey = getPaystackSecretKey();
 
@@ -351,8 +351,7 @@ async function startServer() {
       return res.redirect(`${cleanHost}/?payment_status=success&reference=${reference}&amount=${amountNaira}`);
     } catch (err: any) {
       console.error("[Paystack Callback Exception]:", err);
-      const hostUrl = process.env.APP_URL || req.headers.referer || req.headers.origin || "http://localhost:3000";
-      const cleanHost = hostUrl.split("?")[0].replace(/\/$/, "");
+      const cleanHost = getAppBaseUrl(req);
       return res.redirect(`${cleanHost}/?payment_status=error&reason=${encodeURIComponent(err.message || "Failed callback handling")}`);
     }
   });

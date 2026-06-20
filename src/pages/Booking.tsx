@@ -3,7 +3,7 @@ import { COURSES } from '../data';
 import { BookingSubmission } from '../types';
 import { BookmarkCheck, Send, CheckCircle2, Copy, ExternalLink, CalendarDays, PhoneCall, HelpCircle, CloudLightning, CreditCard, Lock, Sparkles, AlertCircle } from 'lucide-react';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
-import { openPaystackInlineCheckout, verifyPaymentStatus } from '../lib/paymentService';
+import { initializePayment, openPaystackInlineCheckout, verifyPaymentStatus } from '../lib/paymentService';
 import { authService, UserProfile } from '../lib/authService';
 
 interface BookingProps {
@@ -126,6 +126,22 @@ export function Booking({ setCurrentPage, selectedCourseId, setSelectedCourseId,
     };
 
     try {
+      try {
+        const initialized = await initializePayment(payload);
+        const pendingCheckout = {
+          booking: payload,
+          pendingRegistration,
+          amount: amountInNaira,
+          reference: initialized.reference,
+          createdAt: new Date().toISOString()
+        };
+        localStorage.setItem('falcon_pending_paid_signup', JSON.stringify(pendingCheckout));
+        window.location.assign(initialized.authorizationUrl!);
+        return;
+      } catch (initializeErr) {
+        console.warn('Backend Paystack initialization unavailable, falling back to inline checkout:', initializeErr);
+      }
+
       await openPaystackInlineCheckout(
         payload,
         async (response) => {
