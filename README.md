@@ -1,16 +1,14 @@
-CREATE TABLE courses (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  duration TEXT NOT NULL,
-  price INTEGER NOT NULL,
-  category TEXT NOT NULL,
-  description TEXT,
-  active BOOLEAN DEFAULT true,
-  created_at TIMESTAMP DEFAULT NOW(),
-  updated_at TIMESTAMP DEFAULT NOW()
-);
 
-
+ALTER TABLE bookings
+ADD COLUMN IF NOT EXISTS user_id UUID,
+ADD COLUMN IF NOT EXISTS payment_reference TEXT,
+ADD COLUMN IF NOT EXISTS paystack_transaction_id TEXT,
+ADD COLUMN IF NOT EXISTS payment_status TEXT DEFAULT 'paid',
+ADD COLUMN IF NOT EXISTS expected_amount INTEGER,
+ADD COLUMN IF NOT EXISTS paid_amount INTEGER,
+ADD COLUMN IF NOT EXISTS currency TEXT DEFAULT 'NGN',
+ADD COLUMN IF NOT EXISTS payment_option TEXT,
+ADD COLUMN IF NOT EXISTS booking_status TEXT DEFAULT 'paid';
 # Falcon
 
 Falcon is a web application for visualizing and analyzing meteorological data. It provides a user-friendly interface for exploring weather patterns, forecasts, and historical trends.
