@@ -9,6 +9,31 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 // Define server-side database path for verified transactions
 const DB_FILE = path.join(process.cwd(), "bookings_db.json");
 
+const COURSE_PRICES: Record<string, number> = {
+  std_2w_beginners: 95000,
+  std_2w_license: 145000,
+  std_1w_refresher: 75000,
+  std_1w_defensive: 75000,
+  adv_3w_training: 115000,
+  adv_3w_license: 165000,
+  adv_special_home: 265000
+};
+
+function getExpectedPaymentAmount(courseId: string, requestedAmount: number) {
+  const coursePrice = COURSE_PRICES[courseId];
+  if (!coursePrice) {
+    throw new Error("Invalid course selected for payment.");
+  }
+
+  const normalizedRequestedAmount = Math.round(Number(requestedAmount));
+  const allowedAmounts = [coursePrice, Math.round(coursePrice * 0.6)];
+  if (!allowedAmounts.includes(normalizedRequestedAmount)) {
+    throw new Error("Payment amount does not match the selected course price.");
+  }
+
+  return normalizedRequestedAmount;
+}
+
 function getServerSupabase(): SupabaseClient | null {
   const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
@@ -179,12 +204,33 @@ async function startServer() {
         });
       }
 
+      const expectedAmount = getExpectedPaymentAmount(courseId, amount);
       const secretKey = getPaystackSecretKey();
 
-      // Dev mode without Paystack key: Return mock authorization URL for testing
+      // Dev mode without Paystack key: Return a local callback URL so the full
+      // signup -> payment -> dashboard flow can be tested without leaving the app.
       if (!secretKey) {
         const reference = "FALCON_DEV_" + Date.now() + "_" + Math.floor(Math.random() * 9000 + 1000);
-        const mockAuthUrl = "https://checkout.paystack.com/mock-test-" + reference;
+        const cleanHost = getAppBaseUrl(req);
+        const mockAuthUrl = `${cleanHost}/api/payment/callback?reference=${encodeURIComponent(reference)}`;
+        const db = getDb();
+        const mockBooking: VerifiedBooking = {
+          id: "bk_dev_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
+          fullName,
+          phone,
+          email: email.toLowerCase().trim(),
+          courseId,
+          schedule,
+          notes: notes || "Development mode booking - no actual payment",
+          reference,
+          amount: expectedAmount,
+          status: "dev-verified",
+          createdAt: new Date().toISOString(),
+          paidAt: new Date().toISOString()
+        };
+        if (!db.bookings.some(b => b.reference === reference)) db.bookings.push(mockBooking);
+        if (!db.verifiedReferences.includes(reference)) db.verifiedReferences.push(reference);
+        saveDb(db);
         console.log(`[DEV MODE] Mock payment initialized (no real charge): ${reference} for ${email}`);
         return res.status(200).json({
           status: true,
@@ -196,15 +242,16 @@ async function startServer() {
 
       const reference = "FALCON_P_" + Date.now() + "_" + Math.floor(Math.random() * 9000 + 1000);
       
-      // Determine the redirect callback URL dynamically from headers
-      const hostUrl = process.env.APP_URL || req.headers.referer || req.headers.origin || "http://localhost:3000";
-      // We clean trailing slashes from hostUrl
-      const cleanHost = hostUrl.replace(/\/$/, "");
+      // Determine the redirect callback URL from the app origin, not the current page path.
+      // Paystack requires an absolute callback URL; using Referer here can produce
+      // broken URLs such as /signup/api/payment/callback and prevent the app from
+      // returning students to their dashboard after payment.
+      const cleanHost = getAppBaseUrl(req);
       const callbackUrl = `${cleanHost}/api/payment/callback`;
 
       const paystackPayload = {
         email: email.toLowerCase().trim(),
-        amount: Math.round(amount * 100), // convert Naira/USD to Kobo/cents
+        amount: Math.round(expectedAmount * 100), // convert Naira to kobo
         reference,
         callback_url: callbackUrl,
         metadata: {
@@ -213,7 +260,7 @@ async function startServer() {
           fullName,
           phone,
           notes: notes || "",
-          amountNaira: amount
+          amountNaira: expectedAmount
         }
       };
 
@@ -264,8 +311,7 @@ async function startServer() {
 
       console.log(`[Paystack Callback] Verifying transaction reference: ${reference}...`);
 
-      const hostUrl = process.env.APP_URL || req.headers.referer || req.headers.origin || "http://localhost:3000";
-      const cleanHost = hostUrl.split("?")[0].replace(/\/$/, "");
+      const cleanHost = getAppBaseUrl(req);
 
       const secretKey = getPaystackSecretKey();
 
@@ -351,8 +397,7 @@ async function startServer() {
       return res.redirect(`${cleanHost}/?payment_status=success&reference=${reference}&amount=${amountNaira}`);
     } catch (err: any) {
       console.error("[Paystack Callback Exception]:", err);
-      const hostUrl = process.env.APP_URL || req.headers.referer || req.headers.origin || "http://localhost:3000";
-      const cleanHost = hostUrl.split("?")[0].replace(/\/$/, "");
+      const cleanHost = getAppBaseUrl(req);
       return res.redirect(`${cleanHost}/?payment_status=error&reason=${encodeURIComponent(err.message || "Failed callback handling")}`);
     }
   });

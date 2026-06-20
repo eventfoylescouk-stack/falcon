@@ -24,11 +24,12 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [pendingRegistration, setPendingRegistration] = useState<{ fullName: string; phone: string; email: string; password: string } | null>(null);
   const [authViewMode, setAuthViewMode] = useState<'signin' | 'signup'>('signin');
+  const [paymentCallbackState, setPaymentCallbackState] = useState<{ status: 'loading' | 'error'; message: string } | null>(null);
 
   // Route security guard: Require user registration/accounting before booking or dashboard
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const hasCallback = params.get('payment_status') && params.get('reference');
+    const hasCallback = params.get('payment_status');
     if (hasCallback) return; // Yield to payment verification process first
 
     if (currentPage === 'signup' && !currentUser && !pendingRegistration) {
@@ -54,8 +55,19 @@ export default function App() {
     const status = params.get('payment_status');
     const reference = params.get('reference');
 
-    if (status && reference) {
+    if (status) {
       console.log(`[App] Intercepted payment callback. status=${status}, ref=${reference}`);
+      setPaymentCallbackState({ status: 'loading', message: 'Verifying your Paystack payment and opening your dashboard...' });
+
+      if (!reference || status === 'failed' || status === 'error') {
+        const reason = params.get('reason');
+        setPaymentCallbackState({
+          status: 'error',
+          message: reason || 'Payment was not completed successfully. Please try again or contact support.'
+        });
+        window.history.replaceState({}, document.title, window.location.pathname);
+        return;
+      }
       
       const verifyPaymentAndSync = async () => {
         try {
@@ -95,34 +107,45 @@ export default function App() {
 
             // Fetch the user session or mock profile matching this email if logged out
             const allUsers = JSON.parse(localStorage.getItem('falcon_auth_users') || '[]');
-            const matchedUser = allUsers.find((u: any) => u.email.toLowerCase() === resJson.booking.email.toLowerCase());
-            
-            if (matchedUser) {
-              localStorage.setItem('falcon_auth_session', JSON.stringify(matchedUser));
-              setCurrentUser(matchedUser);
-            } else {
-              // Create local user profile if booked without previous profile
-              const newUser = {
-                id: 'usr_' + Date.now(),
-                fullName: resJson.booking.fullName,
-                phone: resJson.booking.phone,
-                email: resJson.booking.email,
-                isVerified: true,
-                createdAt: new Date().toISOString()
-              };
-              allUsers.push(newUser);
+            const pendingCheckout = JSON.parse(localStorage.getItem('falcon_pending_paid_signup') || 'null');
+            const pendingProfile = pendingCheckout?.pendingRegistration;
+            const bookingEmail = resJson.booking.email.toLowerCase();
+            const matchedUser = allUsers.find((u: any) => u.email.toLowerCase() === bookingEmail);
+            const dashboardUser = matchedUser || {
+              id: 'usr_' + Date.now(),
+              fullName: pendingProfile?.fullName || resJson.booking.fullName,
+              phone: pendingProfile?.phone || resJson.booking.phone,
+              email: pendingProfile?.email || resJson.booking.email,
+              isVerified: true,
+              createdAt: new Date().toISOString()
+            };
+
+            if (!matchedUser) {
+              allUsers.push(dashboardUser);
               localStorage.setItem('falcon_auth_users', JSON.stringify(allUsers));
-              localStorage.setItem('falcon_auth_session', JSON.stringify(newUser));
-              setCurrentUser(newUser);
             }
+
+            localStorage.setItem('falcon_auth_session', JSON.stringify(dashboardUser));
+            localStorage.removeItem('falcon_pending_paid_signup');
+            setCurrentUser(dashboardUser);
+
+            setPaymentCallbackState(null);
 
             // Redirect smoothly to the dashboard!
             setCurrentPage('dashboard');
           } else {
             console.warn("[App] Could not verify reference against backend records:", resJson);
+            setPaymentCallbackState({
+              status: 'error',
+              message: resJson.message || 'Payment could not be verified yet. Please retry from your booking page or contact support with your payment reference.'
+            });
           }
         } catch (e) {
           console.error("Failed verification sync:", e);
+          setPaymentCallbackState({
+            status: 'error',
+            message: 'We could not verify your payment because of a network or server error. Please retry or contact support with your payment reference.'
+          });
         }
       };
 
@@ -270,6 +293,42 @@ export default function App() {
         return <Home setCurrentPage={setCurrentPage} />;
     }
   };
+
+  if (paymentCallbackState) {
+    return (
+      <div className="min-h-screen bg-neutral-50 flex items-center justify-center px-4 font-sans text-neutral-800">
+        <div className="max-w-md w-full bg-white rounded-3xl border border-neutral-200 shadow-xl p-8 text-center space-y-5">
+          <div className={`w-16 h-16 mx-auto rounded-full flex items-center justify-center text-2xl ${paymentCallbackState.status === 'loading' ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>
+            {paymentCallbackState.status === 'loading' ? '⏳' : '⚠️'}
+          </div>
+          <div className="space-y-2">
+            <h1 className="font-display font-black text-xl uppercase tracking-tight text-neutral-900">
+              {paymentCallbackState.status === 'loading' ? 'Confirming Payment' : 'Payment Needs Attention'}
+            </h1>
+            <p className="text-sm text-neutral-500">{paymentCallbackState.message}</p>
+          </div>
+          {paymentCallbackState.status === 'error' && (
+            <div className="grid gap-3">
+              <button
+                onClick={() => { setPaymentCallbackState(null); setCurrentPage('signup'); }}
+                className="w-full py-3 bg-neutral-900 hover:bg-neutral-800 text-white font-bold text-sm rounded-xl transition"
+              >
+                Return to Booking
+              </button>
+              <a
+                href="https://wa.me/2348028955522?text=Hello%20Falcon%20Driving%20School%2C%20I%20need%20help%20confirming%20my%20Paystack%20payment."
+                target="_blank"
+                rel="noreferrer"
+                className="w-full py-3 bg-emerald-50 text-emerald-700 font-bold text-sm rounded-xl transition block"
+              >
+                Contact Support
+              </a>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   if (currentPage === 'dashboard') {
     return (
