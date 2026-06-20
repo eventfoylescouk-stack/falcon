@@ -119,7 +119,10 @@ export default function App() {
             setCurrentUser(dashboardUser);
 
             // Redirect smoothly to the dashboard!
-            setCurrentPage('dashboard');
+            // Use setTimeout to ensure state updates are processed before navigation
+            setTimeout(() => {
+              setCurrentPage('dashboard');
+            }, 100);
           } else {
             console.warn("[App] Could not verify reference against backend records:", resJson);
           }
