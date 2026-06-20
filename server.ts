@@ -5,6 +5,7 @@ import fs from "fs";
 import crypto from "crypto";
 import { createServer as createViteServer } from "vite";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import rateLimit from "express-rate-limit";
 
 // Define server-side database path for verified transactions
 const DB_FILE = path.join(process.cwd(), "bookings_db.json");
@@ -137,6 +138,74 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  // Rate limiting for payment endpoints to prevent abuse
+  const paymentLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 10, // Limit each IP to 10 requests per windowMs
+    message: { status: false, message: "Too many payment requests, please try again later." },
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+
+  // Rate limiting for verification endpoints
+  const verifyLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 30, // Limit each IP to 30 requests per windowMs
+    message: { status: false, message: "Too many verification requests, please try again later." },
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+
+  // Input validation middleware
+  const validateBookingInput = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const { amount, email, courseId, schedule, fullName, phone, notes } = req.body;
+
+    // Validate required fields
+    if (!amount || typeof amount !== 'number' || amount <= 0) {
+      return res.status(400).json({ status: false, message: "Invalid amount. Must be a positive number." });
+    }
+
+    if (!email || typeof email !== 'string') {
+      return res.status(400).json({ status: false, message: "Email is required." });
+    }
+
+    // Email format validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email.trim())) {
+      return res.status(400).json({ status: false, message: "Invalid email format." });
+    }
+
+    if (!courseId || typeof courseId !== 'string' || courseId.trim().length === 0) {
+      return res.status(400).json({ status: false, message: "Course ID is required." });
+    }
+
+    if (!schedule || typeof schedule !== 'string' || schedule.trim().length === 0) {
+      return res.status(400).json({ status: false, message: "Schedule is required." });
+    }
+
+    if (!fullName || typeof fullName !== 'string' || fullName.trim().length < 2) {
+      return res.status(400).json({ status: false, message: "Full name must be at least 2 characters." });
+    }
+
+    if (!phone || typeof phone !== 'string' || phone.trim().length < 10) {
+      return res.status(400).json({ status: false, message: "Phone number must be at least 10 characters." });
+    }
+
+    // Sanitize notes if provided
+    if (notes && typeof notes === 'string') {
+      req.body.notes = notes.trim().substring(0, 500); // Limit notes to 500 characters
+    }
+
+    // Sanitize all string inputs
+    req.body.email = email.trim().toLowerCase();
+    req.body.courseId = courseId.trim();
+    req.body.schedule = schedule.trim();
+    req.body.fullName = fullName.trim();
+    req.body.phone = phone.trim();
+
+    next();
+  };
+
   app.use("/api/webhooks/paystack", express.raw({ type: "application/json" }));
   app.use(express.json());
 
@@ -168,16 +237,9 @@ async function startServer() {
   };
 
   // API 1: Initialize transaction with backend Paystack call
-  app.post("/api/payment/initialize", async (req, res) => {
+  app.post("/api/payment/initialize", paymentLimiter, validateBookingInput, async (req, res) => {
     try {
       const { amount, email, courseId, schedule, fullName, phone, notes } = req.body;
-
-      if (!amount || !email || !courseId || !schedule || !fullName || !phone) {
-        return res.status(400).json({ 
-          status: false, 
-          message: "Required booking and checkout details are missing." 
-        });
-      }
 
       const secretKey = getPaystackSecretKey();
 
@@ -357,7 +419,7 @@ async function startServer() {
   });
 
   // API 3: Query Verification from UI (always validates against Paystack before finalizing)
-  app.get("/api/payment/verify-status", async (req, res) => {
+  app.get("/api/payment/verify-status", verifyLimiter, async (req, res) => {
     try {
       const reference = String(req.query.reference || "").trim();
       if (!reference) {

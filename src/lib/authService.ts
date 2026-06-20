@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import bcrypt from 'bcryptjs';
 
 export interface UserProfile {
   id: string;
@@ -7,7 +8,7 @@ export interface UserProfile {
   email: string;
   isVerified: boolean;
   createdAt: string;
-  password?: string; // For simulation match
+  passwordHash?: string; // Hashed password for local storage
 }
 
 // Simulated mock database of users for local preview / testing
@@ -18,19 +19,9 @@ function getLocalUsers(): UserProfile[] {
   try {
     const raw = localStorage.getItem(LOCAL_USERS_KEY);
     if (!raw) {
-      const defaultUsers: UserProfile[] = [
-        {
-          id: 'usr_amina_wuye',
-          fullName: 'Amina Yusuf',
-          phone: '08028955522',
-          email: 'amina@example.com',
-          isVerified: true,
-          createdAt: new Date().toISOString(),
-          password: 'password123'
-        }
-      ];
-      localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(defaultUsers));
-      return defaultUsers;
+      // No default users - users must sign up
+      localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify([]));
+      return [];
     }
     return JSON.parse(raw);
   } catch {
@@ -64,8 +55,11 @@ export const authService = {
     if (!email || !isValidEmail(email)) {
       throw new Error('Email is compulsory and must be valid. Use a format like name@example.com.');
     }
-    if (!password || password.trim().length < 6) {
-      throw new Error('Password is required and must be at least 6 characters.');
+    
+    // Strengthened password requirements: at least 8 characters, with uppercase, lowercase, and number
+    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
+    if (!password || !passwordRegex.test(password)) {
+      throw new Error('Password must be at least 8 characters and include uppercase, lowercase, and a number.');
     }
 
     const normalizedEmail = email.toLowerCase().trim();
@@ -99,6 +93,9 @@ export const authService = {
       }
     }
 
+    // Hash password with bcrypt
+    const passwordHash = await bcrypt.hash(password, 10);
+
     const newUser: UserProfile = {
       id: supabaseUserId || 'usr_' + Math.random().toString(36).substr(2, 9),
       fullName,
@@ -106,18 +103,22 @@ export const authService = {
       email: normalizedEmail,
       isVerified: true, // Instantly verified to remove confirmation requirements
       createdAt: new Date().toISOString(),
-      password: password
+      passwordHash
     };
 
     users.push(newUser);
     saveLocalUsers(users);
 
-    // Auto-login the active local user
-    localStorage.setItem(CURRENT_SESSION_KEY, JSON.stringify(newUser));
+    // Auto-login the active local user (without password)
+    const sessionUser: UserProfile = {
+      ...newUser,
+      passwordHash: undefined // Don't store hash in session
+    };
+    localStorage.setItem(CURRENT_SESSION_KEY, JSON.stringify(sessionUser));
 
     console.log(`[Falcon Dev Mode] User signed up & auto-logged in instantly: ${normalizedEmail}`);
 
-    return newUser;
+    return sessionUser;
   },
 
   /**
@@ -127,9 +128,7 @@ export const authService = {
     const normalizedEmail = email.toLowerCase().trim();
     const expected = activeVerificationCodes[normalizedEmail];
 
-    // For local convenience, we also allow '123456' as a universal testing bypass code
-    if (code === expected || code === '123456' || code.trim() === '123456') {
-      
+    if (code === expected) {
       // Update local storage DB status to verified
       const users = getLocalUsers();
       const idx = users.findIndex(u => u.email === normalizedEmail);
@@ -163,7 +162,12 @@ export const authService = {
     const normalizedEmail = email.toLowerCase().trim();
     const users = getLocalUsers();
     const localUser = users.find(u => u.email === normalizedEmail);
-    const localPasswordMatches = !!localUser && !!password && (localUser.password || 'password123') === password;
+    
+    // Verify password using bcrypt
+    let localPasswordMatches = false;
+    if (localUser && password && localUser.passwordHash) {
+      localPasswordMatches = await bcrypt.compare(password, localUser.passwordHash);
+    }
 
     let supabasePasswordMatches = false;
     let supabaseMessage = 'Supabase is not configured.';
@@ -213,6 +217,8 @@ export const authService = {
       });
       if (!error && data?.user) {
         const sbUser = data.user;
+        // Hash password for local storage
+        const passwordHash = await bcrypt.hash(password || '', 10);
         user = {
           id: sbUser.id || 'usr_' + Math.random().toString(36).substr(2, 9),
           fullName: sbUser.user_metadata?.full_name || 'Verified Student',
@@ -220,7 +226,7 @@ export const authService = {
           email: normalizedEmail,
           isVerified: true,
           createdAt: new Date().toISOString(),
-          password: password
+          passwordHash
         };
         const users = getLocalUsers();
         users.push(user);
@@ -240,9 +246,13 @@ export const authService = {
       throw error;
     }
 
-    // Login successful
-    localStorage.setItem(CURRENT_SESSION_KEY, JSON.stringify(user));
-    return user;
+    // Login successful - don't store password hash in session
+    const sessionUser: UserProfile = {
+      ...user,
+      passwordHash: undefined
+    };
+    localStorage.setItem(CURRENT_SESSION_KEY, JSON.stringify(sessionUser));
+    return sessionUser;
   },
 
   /**
