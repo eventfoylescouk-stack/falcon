@@ -8,8 +8,8 @@ interface AuthProps {
   setCurrentPage: (page: string) => void;
   onLoginSuccess?: (user: UserProfile) => void;
   initialView?: 'signin' | 'signup';
-  pendingRegistration: { fullName: string; phone: string; email: string; password: string } | null;
-  setPendingRegistration: React.Dispatch<React.SetStateAction<{ fullName: string; phone: string; email: string; password: string } | null>>;
+  pendingRegistration: { fullName: string; phone: string; email: string } | null;
+  setPendingRegistration: React.Dispatch<React.SetStateAction<{ fullName: string; phone: string; email: string } | null>>;
 }
 
 export function Auth({ setCurrentPage, onLoginSuccess, initialView, pendingRegistration, setPendingRegistration }: AuthProps) {
@@ -36,8 +36,6 @@ export function Auth({ setCurrentPage, onLoginSuccess, initialView, pendingRegis
 
   // Verification fields
   const [verificationEmail, setVerificationEmail] = useState('');
-  const [verificationCode, setVerificationCode] = useState('');
-  const [simulatedCode, setSimulatedCode] = useState<string | null>(null);
 
 
 
@@ -69,19 +67,29 @@ export function Auth({ setCurrentPage, onLoginSuccess, initialView, pendingRegis
       return;
     }
 
-    if (password.trim().length < 6) {
-      setErrorMessage("Password must be at least 6 characters.");
+    const passwordPattern = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
+    if (!passwordPattern.test(password)) {
+      setErrorMessage("Password must be at least 8 characters and include uppercase, lowercase, and a number.");
       return;
     }
 
     setIsLoading(true);
     try {
-      const normalizedEmail = email.toLowerCase().trim();
-      setPendingRegistration({ fullName: fullName.trim(), phone: phone.trim(), email: normalizedEmail, password });
-      setSuccessMessage("Almost done! Complete your booking to open payment and activate your account.");
-      setTimeout(() => {
-        setCurrentPage('signup');
-      }, 1200);
+      const result = await authService.signUp(fullName.trim(), phone.trim(), normalizedEmail, password);
+      setPendingRegistration({ fullName: fullName.trim(), phone: phone.trim(), email: normalizedEmail });
+
+      if (result.user) {
+        setSuccessMessage("Account created and signed in. Continue to choose your course and pay.");
+        onLoginSuccess?.(result.user);
+        setTimeout(() => {
+          setCurrentPage('signup');
+        }, 1200);
+        return;
+      }
+
+      setVerificationEmail(result.email);
+      setSuccessMessage("Account created. Please confirm your email before signing in and booking.");
+      setView('verify');
       return;
     } catch (err: any) {
       setErrorMessage(err.message || "An error occurred during registration.");
@@ -102,14 +110,6 @@ export function Auth({ setCurrentPage, onLoginSuccess, initialView, pendingRegis
 
     setIsLoading(true);
     try {
-      const validation = await authService.validateCredentialsAcrossStores(email, password);
-      if (!validation.localUser) {
-        throw new Error('No matching local student profile exists for this email. Please complete sign up first.');
-      }
-      if (!validation.isValid) {
-        throw new Error('Email/password was rejected by both Supabase Auth and the local users table.');
-      }
-
       const user = await authService.signIn(email, password);
       
       // Login success
@@ -128,58 +128,49 @@ export function Auth({ setCurrentPage, onLoginSuccess, initialView, pendingRegis
     }
   };
 
-  // Handle Email Verification Form / Link Click
-  const handleVerifySubmit = async (e?: React.FormEvent, codeToUse?: string) => {
+  // Handle Email Verification Link Completion
+  const handleVerifySubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setErrorMessage(null);
 
-    const activeCode = codeToUse || verificationCode || simulatedCode || '123456';
-
     setIsLoading(true);
     try {
-      const verified = await authService.confirmEmail(verificationEmail, activeCode);
-      if (verified) {
-        setSuccessMessage("Email authenticated successfully! Redirecting to select course and pay...");
-        
-        let loggedInUser = null;
-        try {
-          if (password) {
-            loggedInUser = await authService.signIn(verificationEmail, password);
-          }
-        } catch (loginErr) {
-          console.warn("Could not auto-login with credentials:", loginErr);
-        }
+      await authService.confirmEmail(verificationEmail);
+      const loggedInUser = authService.getCurrentUser();
 
-        // Secondary fallback to fetch from logged in local status if password was absent
-        if (!loggedInUser) {
-          loggedInUser = authService.getCurrentUser();
-        }
-
-        if (loggedInUser && onLoginSuccess) {
-          onLoginSuccess(loggedInUser);
-        }
-
-        setTimeout(() => {
-          setCurrentPage('signup');
-          setVerificationCode('');
-        }, 1500);
+      if (loggedInUser && onLoginSuccess) {
+        onLoginSuccess(loggedInUser);
       }
+
+      setSuccessMessage("Email confirmed. Continue to choose your course and pay.");
+      setTimeout(() => {
+        setCurrentPage('signup');
+      }, 1500);
     } catch (err: any) {
-      setErrorMessage(err.message || "Failed to authenticate via link. Please retry or contact support.");
+      setSuccessMessage("If you already clicked the confirmation link, sign in with your email and password to continue.");
+      setView('signin');
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Handle manual code request resends
-  const handleResendCode = () => {
+  // Handle confirmation email resends
+  const handleResendCode = async () => {
     if (!verificationEmail) {
-      setErrorMessage("No email specified for code dispatch.");
+      setErrorMessage("No email specified for confirmation email dispatch.");
       return;
     }
-    const code = authService.resendCode(verificationEmail);
-    setSimulatedCode(code);
-    setSuccessMessage(`A new confirmation code has been dispatched to ${verificationEmail}.`);
+
+    setIsLoading(true);
+    setErrorMessage(null);
+    try {
+      await authService.resendCode(verificationEmail);
+      setSuccessMessage(`A new Supabase confirmation email has been sent to ${verificationEmail}.`);
+    } catch (err: any) {
+      setErrorMessage(err.message || "Could not send another confirmation email.");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -350,7 +341,7 @@ export function Auth({ setCurrentPage, onLoginSuccess, initialView, pendingRegis
                     className="w-full pl-10 pr-4 py-3 rounded-xl border border-neutral-200 outline-hidden focus:border-neutral-900 focus:ring-1 focus:ring-neutral-900 transition-all text-sm bg-neutral-50/50"
                   />
                 </div>
-                <p className="text-[10px] text-neutral-400">Used for required offline or custom Supabase authentication verification.</p>
+                <p className="text-[10px] text-neutral-400">Used for Supabase email confirmation and payment receipts.</p>
               </div>
 
               <div className="space-y-1 text-left">
@@ -362,7 +353,7 @@ export function Auth({ setCurrentPage, onLoginSuccess, initialView, pendingRegis
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Create security password (min. 6 characters)"
+                    placeholder="Min. 8 chars, uppercase, lowercase, number"
                     className="w-full pl-10 pr-12 py-3 rounded-xl border border-neutral-200 outline-hidden focus:border-neutral-900 focus:ring-1 focus:ring-neutral-900 transition-all text-sm bg-neutral-50/50"
                   />
                   <button
@@ -426,20 +417,28 @@ export function Auth({ setCurrentPage, onLoginSuccess, initialView, pendingRegis
 
               <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4 text-left text-xs text-emerald-800 leading-relaxed space-y-1.5">
                 <p className="font-semibold text-emerald-950 flex items-center gap-1.5">
-                  <ShieldCheck className="w-4 h-4 shrink-0 text-emerald-600" /> Real-time Activation Active
+                  <ShieldCheck className="w-4 h-4 shrink-0 text-emerald-600" /> Email Confirmation Required
                 </p>
                 <p>
-                  Please check your inbox (including your spam/junk folder) and click the activation link. This page will update automatically once authenticated, granting you instant access to search, select, and book driving lesson slots.
+                  Please check your inbox (including spam/junk) and click the Supabase confirmation link. After confirmation, sign in with this email and password to continue booking.
                 </p>
               </div>
 
               <div className="flex gap-3 pt-2">
                 <button
                   type="button"
+                  onClick={handleVerifySubmit}
+                  disabled={isLoading}
+                  className="w-full py-3 bg-neutral-900 hover:bg-neutral-800 text-white font-sans font-bold text-xs uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" /> I Confirmed My Email
+                </button>
+                <button
+                  type="button"
                   onClick={() => setView('signup')}
                   className="w-full py-3 border border-neutral-200 hover:bg-neutral-50 text-neutral-700 font-sans font-bold text-xs uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                 >
-                  <ArrowLeft className="w-3.5 h-3.5" /> Back to edit Sign Up Form
+                  <ArrowLeft className="w-3.5 h-3.5" /> Edit Sign Up
                 </button>
               </div>
 

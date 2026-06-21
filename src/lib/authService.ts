@@ -1,5 +1,4 @@
 import { supabase } from './supabase';
-import bcrypt from 'bcryptjs';
 
 export interface UserProfile {
   id: string;
@@ -8,295 +7,238 @@ export interface UserProfile {
   email: string;
   isVerified: boolean;
   createdAt: string;
-  passwordHash?: string; // Hashed password for local storage
 }
 
-// Simulated mock database of users for local preview / testing
-const LOCAL_USERS_KEY = 'falcon_auth_users';
-const CURRENT_SESSION_KEY = 'falcon_auth_session';
+export interface SignUpResult {
+  email: string;
+  user: UserProfile | null;
+  needsEmailConfirmation: boolean;
+}
 
-function getLocalUsers(): UserProfile[] {
+const LOCAL_PROFILES_KEY = 'falcon_auth_profiles';
+const CURRENT_SESSION_KEY = 'falcon_auth_session';
+const LEGACY_USERS_KEY = 'falcon_auth_users';
+
+const EMAIL_VALIDATION_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PASSWORD_VALIDATION_PATTERN = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
+
+function normalizeEmail(email: string): string {
+  return email.toLowerCase().trim();
+}
+
+function getEmailRedirectTo(): string | undefined {
+  if (typeof window === 'undefined') return undefined;
+  return window.location.origin;
+}
+
+function isValidEmail(email: string): boolean {
+  return EMAIL_VALIDATION_PATTERN.test(normalizeEmail(email));
+}
+
+function getLocalProfiles(): UserProfile[] {
   try {
-    const raw = localStorage.getItem(LOCAL_USERS_KEY);
-    if (!raw) {
-      // No default users - users must sign up
-      localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify([]));
-      return [];
-    }
-    return JSON.parse(raw);
+    const raw = localStorage.getItem(LOCAL_PROFILES_KEY) || localStorage.getItem(LEGACY_USERS_KEY);
+    if (!raw) return [];
+    return (JSON.parse(raw) as UserProfile[]).map(({ id, fullName, phone, email, isVerified, createdAt }) => ({
+      id,
+      fullName,
+      phone,
+      email: normalizeEmail(email),
+      isVerified: !!isVerified,
+      createdAt
+    }));
   } catch {
     return [];
   }
 }
 
-function saveLocalUsers(users: UserProfile[]) {
-  localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(users));
+function saveLocalProfiles(profiles: UserProfile[]) {
+  localStorage.setItem(LOCAL_PROFILES_KEY, JSON.stringify(profiles));
+  localStorage.removeItem(LEGACY_USERS_KEY);
 }
 
-// Generate a random 6-digit confirmation code
-export function generateVerificationCode(): string {
-  return Math.floor(100000 + Math.random() * 900000).toString();
+function upsertLocalProfile(profile: UserProfile): UserProfile {
+  const profiles = getLocalProfiles();
+  const index = profiles.findIndex(existing => existing.email === profile.email);
+
+  if (index === -1) {
+    profiles.push(profile);
+  } else {
+    profiles[index] = { ...profiles[index], ...profile };
+  }
+
+  saveLocalProfiles(profiles);
+  return profile;
 }
 
-// Temporary confirmation codes storage
-const activeVerificationCodes: Record<string, string> = {};
-
-const EMAIL_VALIDATION_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-function isValidEmail(email: string): boolean {
-  return EMAIL_VALIDATION_PATTERN.test(email.trim().toLowerCase());
+function requireSupabase() {
+  if (!supabase) {
+    throw new Error('Supabase Auth is required for sign up and sign in. Configure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');
+  }
+  return supabase;
 }
 
 export const authService = {
-  /**
-   * Register a new user profile.
-   */
-  async signUp(fullName: string, phone: string, email: string, password?: string) {
-    if (!email || !isValidEmail(email)) {
+  async signUp(fullName: string, phone: string, email: string, password?: string): Promise<SignUpResult> {
+    const normalizedEmail = normalizeEmail(email);
+
+    if (!normalizedEmail || !isValidEmail(normalizedEmail)) {
       throw new Error('Email is compulsory and must be valid. Use a format like name@example.com.');
     }
-    
-    // Strengthened password requirements: at least 8 characters, with uppercase, lowercase, and number
-    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
-    if (!password || !passwordRegex.test(password)) {
+
+    if (!password || !PASSWORD_VALIDATION_PATTERN.test(password)) {
       throw new Error('Password must be at least 8 characters and include uppercase, lowercase, and a number.');
     }
 
-    const normalizedEmail = email.toLowerCase().trim();
-
-    // 1. Check for duplicate emails first before any account generation flows
-    const users = getLocalUsers();
-    const exists = users.some(u => u.email === normalizedEmail);
-    if (exists) {
-      throw new Error('An account with this email already exists.');
-    }
-
-    // 2. Production Supabase flow (if enabled, process it in background or try it)
-    let supabaseUserId = undefined;
-    if (supabase) {
-      try {
-        const { data, error } = await supabase.auth.signUp({
-          email: normalizedEmail,
-          password: password,
-          options: {
-            data: {
-              full_name: fullName,
-              phone: phone,
-            },
-          },
-        });
-        if (!error && data.user) {
-          supabaseUserId = data.user.id;
-        }
-      } catch (err: any) {
-        console.warn('Supabase Sign Up attempted but warning generated:', err.message);
-      }
-    }
-
-    // Hash password with bcrypt
-    const passwordHash = await bcrypt.hash(password, 10);
-
-    const newUser: UserProfile = {
-      id: supabaseUserId || 'usr_' + Math.random().toString(36).substr(2, 9),
-      fullName,
-      phone,
+    const client = requireSupabase();
+    const { data, error } = await client.auth.signUp({
       email: normalizedEmail,
-      isVerified: true, // Instantly verified to remove confirmation requirements
-      createdAt: new Date().toISOString(),
-      passwordHash
-    };
+      password,
+      options: {
+        emailRedirectTo: getEmailRedirectTo(),
+        data: {
+          full_name: fullName.trim(),
+          phone: phone.trim(),
+        },
+      },
+    });
 
-    users.push(newUser);
-    saveLocalUsers(users);
+    if (error) {
+      throw new Error(error.message || 'Could not create your Supabase account.');
+    }
 
-    // Auto-login the active local user (without password)
-    const sessionUser: UserProfile = {
-      ...newUser,
-      passwordHash: undefined // Don't store hash in session
-    };
-    localStorage.setItem(CURRENT_SESSION_KEY, JSON.stringify(sessionUser));
+    if (data.session?.user) {
+      const user = await this.syncSupabaseSession(data.session);
+      return { email: normalizedEmail, user, needsEmailConfirmation: false };
+    }
 
-    console.log(`[Falcon Dev Mode] User signed up & auto-logged in instantly: ${normalizedEmail}`);
-
-    return sessionUser;
+    return { email: normalizedEmail, user: null, needsEmailConfirmation: true };
   },
 
-  /**
-   * Confirm the email address using the supplied verification code.
-   */
-  async confirmEmail(email: string, code: string): Promise<boolean> {
-    const normalizedEmail = email.toLowerCase().trim();
-    const expected = activeVerificationCodes[normalizedEmail];
+  async confirmEmail(_email: string): Promise<boolean> {
+    const client = requireSupabase();
+    const { data, error } = await client.auth.getSession();
 
-    if (code === expected) {
-      // Update local storage DB status to verified
-      const users = getLocalUsers();
-      const idx = users.findIndex(u => u.email === normalizedEmail);
-      if (idx !== -1) {
-        users[idx].isVerified = true;
-        saveLocalUsers(users);
-      }
+    if (error) {
+      throw new Error(error.message || 'Could not confirm your Supabase session.');
+    }
 
-      delete activeVerificationCodes[normalizedEmail];
+    if (data.session?.user) {
+      await this.syncSupabaseSession(data.session);
       return true;
     }
 
-    throw new Error('Invalid verification code. Please check and try again.');
+    throw new Error('Email confirmation is completed from the secure link in your inbox. After clicking it, please sign in with your email and password.');
   },
 
-  /**
-   * Resend the email confirmation code
-   */
-  resendCode(email: string): string {
-    const normalizedEmail = email.toLowerCase().trim();
-    const code = generateVerificationCode();
-    activeVerificationCodes[normalizedEmail] = code;
-    console.log(`[Falcon Dev Mode] Resent verification code to ${normalizedEmail}: ${code}`);
-    return code;
-  },
-
-  /**
-   * Explicitly validate credentials against Supabase Auth (when configured) and the local users table.
-   */
-  async validateCredentialsAcrossStores(email: string, password?: string) {
-    const normalizedEmail = email.toLowerCase().trim();
-    const users = getLocalUsers();
-    const localUser = users.find(u => u.email === normalizedEmail);
-    
-    // Verify password using bcrypt
-    let localPasswordMatches = false;
-    if (localUser && password && localUser.passwordHash) {
-      localPasswordMatches = await bcrypt.compare(password, localUser.passwordHash);
+  async resendCode(email: string): Promise<void> {
+    const normalizedEmail = normalizeEmail(email);
+    if (!normalizedEmail || !isValidEmail(normalizedEmail)) {
+      throw new Error('Enter a valid email address before requesting another confirmation email.');
     }
 
+    const client = requireSupabase();
+    const { error } = await client.auth.resend({
+      type: 'signup',
+      email: normalizedEmail,
+      options: { emailRedirectTo: getEmailRedirectTo() },
+    });
+
+    if (error) {
+      throw new Error(error.message || 'Could not resend the confirmation email.');
+    }
+  },
+
+  async validateCredentialsAcrossStores(email: string, password?: string) {
+    const normalizedEmail = normalizeEmail(email);
+    const localUser = getLocalProfiles().find(user => user.email === normalizedEmail) || null;
     let supabasePasswordMatches = false;
     let supabaseMessage = 'Supabase is not configured.';
 
-    if (supabase) {
-      try {
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email: normalizedEmail,
-          password: password || '',
-        });
-        supabasePasswordMatches = !error && !!data?.user;
-        supabaseMessage = error?.message || 'Supabase Auth credentials accepted.';
-      } catch (err: any) {
-        supabaseMessage = err?.message || 'Supabase Auth check failed.';
-      }
+    if (supabase && password) {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: normalizedEmail,
+        password,
+      });
+      supabasePasswordMatches = !error && !!data?.user;
+      supabaseMessage = error?.message || 'Supabase Auth credentials accepted.';
     }
 
     return {
       normalizedEmail,
       localUser,
-      localPasswordMatches,
+      localPasswordMatches: false,
       supabasePasswordMatches,
       supabaseMessage,
-      isValid: localPasswordMatches || supabasePasswordMatches,
+      isValid: supabasePasswordMatches,
     };
   },
 
-  /**
-   * Sign In an existing user.
-   * If they are not verified, throws a custom verification-required error.
-   */
-  async signIn(email: string, password?: string) {
-    const normalizedEmail = email.toLowerCase().trim();
+  async signIn(email: string, password?: string): Promise<UserProfile> {
+    const normalizedEmail = normalizeEmail(email);
 
-    const validation = await this.validateCredentialsAcrossStores(normalizedEmail, password);
-    let user = validation.localUser;
-
-    if (!validation.isValid) {
-      console.warn('Credential validation failed across Supabase Auth and local users table:', validation.supabaseMessage);
-      throw new Error('Incorrect password. Please verify your Supabase Auth and local profile credentials.');
+    if (!normalizedEmail || !isValidEmail(normalizedEmail)) {
+      throw new Error('Please enter a valid email address.');
     }
 
-    if (!user && validation.supabasePasswordMatches && supabase) {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: normalizedEmail,
-        password: password || '',
-      });
-      if (!error && data?.user) {
-        const sbUser = data.user;
-        // Hash password for local storage
-        const passwordHash = await bcrypt.hash(password || '', 10);
-        user = {
-          id: sbUser.id || 'usr_' + Math.random().toString(36).substr(2, 9),
-          fullName: sbUser.user_metadata?.full_name || 'Verified Student',
-          phone: sbUser.user_metadata?.phone || '',
-          email: normalizedEmail,
-          isVerified: true,
-          createdAt: new Date().toISOString(),
-          passwordHash
-        };
-        const users = getLocalUsers();
-        users.push(user);
-        saveLocalUsers(users);
+    if (!password) {
+      throw new Error('Please enter your password.');
+    }
+
+    const client = requireSupabase();
+    const { data, error } = await client.auth.signInWithPassword({
+      email: normalizedEmail,
+      password,
+    });
+
+    if (error) {
+      const authError = new Error(
+        /confirm|verified|verification/i.test(error.message)
+          ? 'Please confirm your email address before signing in. Check your inbox for the Supabase confirmation link.'
+          : error.message || 'Account authentication failed. Please check your credentials.'
+      ) as Error & { code?: string; email?: string };
+      if (/confirm|verified|verification/i.test(error.message)) {
+        authError.code = 'EMAIL_NOT_CONFIRMED';
+        authError.email = normalizedEmail;
       }
+      throw authError;
     }
 
+    if (!data.session?.user) {
+      throw new Error('No Supabase session was returned. Please confirm your email and sign in again.');
+    }
+
+    const user = await this.syncSupabaseSession(data.session);
     if (!user) {
-      throw new Error('No registered local profile found for this email. Please sign up first so your student record can be linked.');
+      throw new Error('Could not create a local student session from Supabase Auth.');
     }
 
-    if (!user.isVerified) {
-      // Throw a specific block indicator so the UI redirects them to verification page
-      const error = new Error('Verification required') as any;
-      error.code = 'EMAIL_NOT_CONFIRMED';
-      error.email = normalizedEmail;
-      throw error;
-    }
-
-    // Login successful - don't store password hash in session
-    const sessionUser: UserProfile = {
-      ...user,
-      passwordHash: undefined
-    };
-    localStorage.setItem(CURRENT_SESSION_KEY, JSON.stringify(sessionUser));
-    return sessionUser;
-  },
-
-  /**
-   * Sync active Supabase session to local user profile and log them in.
-   */
-  async syncSupabaseSession(session: any): Promise<UserProfile | null> {
-    if (!session || !session.user) {
-      return null;
-    }
-    const sbUser = session.user;
-    const email = (sbUser.email || '').toLowerCase().trim();
-    const fullName = sbUser.user_metadata?.full_name || 'Verified Student';
-    const phone = sbUser.user_metadata?.phone || '';
-
-    const users = getLocalUsers();
-    let user = users.find(u => u.email === email);
-
-    if (!user) {
-      user = {
-        id: sbUser.id || 'usr_' + Math.random().toString(36).substr(2, 9),
-        fullName,
-        phone,
-        email,
-        isVerified: true,
-        createdAt: new Date().toISOString()
-      };
-      users.push(user);
-    } else {
-      user.isVerified = true;
-      if (fullName && fullName !== 'Verified Student') {
-        user.fullName = fullName;
-      }
-      if (phone) {
-        user.phone = phone;
-      }
-    }
-    saveLocalUsers(users);
-    localStorage.setItem(CURRENT_SESSION_KEY, JSON.stringify(user));
     return user;
   },
 
-  /**
-   * Log out current user
-   */
+  async syncSupabaseSession(session: any): Promise<UserProfile | null> {
+    if (!session?.user) {
+      return null;
+    }
+
+    const sbUser = session.user;
+    const email = normalizeEmail(sbUser.email || '');
+    if (!email) return null;
+
+    const profile: UserProfile = {
+      id: sbUser.id,
+      fullName: sbUser.user_metadata?.full_name || 'Verified Student',
+      phone: sbUser.user_metadata?.phone || '',
+      email,
+      isVerified: !!sbUser.email_confirmed_at,
+      createdAt: sbUser.created_at || new Date().toISOString()
+    };
+
+    upsertLocalProfile(profile);
+    localStorage.setItem(CURRENT_SESSION_KEY, JSON.stringify(profile));
+    return profile;
+  },
+
   signOut() {
     localStorage.removeItem(CURRENT_SESSION_KEY);
     if (supabase) {
@@ -304,9 +246,6 @@ export const authService = {
     }
   },
 
-  /**
-   * Retrieves current authenticated user profile
-   */
   getCurrentUser(): UserProfile | null {
     try {
       const data = localStorage.getItem(CURRENT_SESSION_KEY);
