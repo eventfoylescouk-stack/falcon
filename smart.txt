@@ -1,0 +1,887 @@
+Executive Summary
+The application is not production-ready yet.
+
+It has a working Vite/React frontend, an Express backend with Paystack payment integration, basic Supabase support, and Vercel deployment scaffolding. However, the most serious risk is that authentication and authorization are currently client-controlled, with student sessions, user profiles, booking display state, and some password-derived data stored in localStorage. A user can forge localStorage values and access dashboard-like flows without trustworthy server-side authorization. 
+
+The payment backend verifies Paystack transactions server-side, which is good, but the payment flow still has critical business-logic gaps: the client sends the payable amount, course ID, schedule, and student details, and the backend accepts them without checking against a server-owned course catalog. This allows price tampering unless Paystack-side metadata/amount validation is tightened. 
+
+The Supabase persistence work is directionally correct, but the current persistence abstraction reads all bookings and all webhook references into memory for verification and webhook handling. That design will degrade as data grows and creates race/concurrency risks. 
+
+Scores
+Category	Score	Reason
+Security	3 / 10	Client-controlled auth/session, localStorage user records, no server-side authorization, possible payment amount tampering, weak CSRF posture, broad data reads.
+Architecture	4 / 10	Small app structure is understandable, but frontend, auth, payments, booking persistence, and dashboard state are tightly coupled.
+Code Quality	5 / 10	TypeScript exists, but strictness is weak, business logic is duplicated, API/domain boundaries are unclear, and comments indicate prototype/dev assumptions.
+Production Readiness	3 / 10	Vercel/Supabase direction is started, but auth, payment integrity, observability, tests, data model, and operational safeguards are incomplete.
+1. Project Architecture Review
+Current Architecture
+The app is a Vite + React SPA with an Express server used for Paystack payment APIs and static serving in production. The frontend controls routing manually through currentPage state rather than using a router. 
+
+The backend is centralized in one large server.ts file containing environment handling, persistence, payment initialization, payment callback verification, status verification, Paystack webhook handling, static serving, and local development server startup. 
+
+Vercel deployment is configured through api/index.ts and vercel.json, routing /api/* to the Express app and all other paths to the SPA. 
+
+Major Architecture Issues
+1.1 Critical: Authentication is not a real backend architecture
+Why it is a problem
+
+The application stores users and sessions in browser localStorage. This means users can create, modify, or delete their own identities by editing browser storage. The dashboard and booking flow trust client-side state instead of server-issued sessions. 
+
+Severity: Critical
+Affected files: src/lib/authService.ts, src/App.tsx, src/pages/Dashboard.tsx
+
+Recommended fix
+
+Move authentication fully to Supabase Auth or a backend session system. The frontend should only hold Supabase session tokens, and any sensitive booking/dashboard data should be fetched from authenticated backend APIs.
+
+Sample direction
+
+// Server-side example concept
+app.get("/api/me/bookings", requireSupabaseUser, async (req, res) => {
+  const user = req.user;
+  const { data, error } = await supabase
+    .from("bookings")
+    .select("*")
+    .eq("email", user.email);
+
+  if (error) return res.status(500).json({ error: "Could not load bookings" });
+  return res.json({ bookings: data });
+});
+1.2 High: The SPA uses manual page state instead of route-level architecture
+Why it is a problem
+
+currentPage controls app navigation, auth gates, dashboard visibility, and SEO metadata. This makes navigation fragile, prevents deep links, complicates browser back/forward behavior, and makes auth protection easy to bypass in client code. 
+
+Severity: High
+Affected files: src/App.tsx, page components
+
+Recommended fix
+
+Use React Router or TanStack Router with route guards:
+
+<Route
+  path="/dashboard"
+  element={
+    <RequireAuth>
+      <Dashboard />
+    </RequireAuth>
+  }
+/>
+1.3 High: Backend responsibilities are concentrated in one file
+Why it is a problem
+
+server.ts handles persistence, Paystack secrets, validation, Paystack initialization, callbacks, webhooks, Supabase mapping, local DB fallback, Vite middleware, and server startup. This makes testing difficult and increases risk of regressions. 
+
+Severity: High
+Affected files: server.ts
+
+Recommended architecture
+
+Split backend into:
+
+server/
+  app.ts
+  config/env.ts
+  middleware/rateLimit.ts
+  middleware/auth.ts
+  routes/payments.ts
+  routes/bookings.ts
+  services/paystack.ts
+  repositories/bookingsRepository.ts
+  repositories/webhookEventsRepository.ts
+  validators/bookingValidator.ts
+2. Authentication & Authorization Audit
+2.1 Critical: Password hashes and user records are stored in browser localStorage
+Why it is a problem
+
+The app stores the local user database in localStorage, including passwordHash. Even though bcrypt is used, storing password hashes client-side is not acceptable because an attacker with XSS, browser access, or extension access can extract hashes and attempt offline cracking. 
+
+Severity: Critical
+Affected files: src/lib/authService.ts
+
+Recommended fix
+
+Remove local password storage completely. Use Supabase Auth only.
+
+2.2 Critical: Sessions are client-forgeable
+Why it is a problem
+
+The app reads falcon_auth_session directly from localStorage and treats it as a logged-in user. Anyone can create this object manually in DevTools. 
+
+Severity: Critical
+Affected files: src/lib/authService.ts, src/App.tsx, src/pages/Dashboard.tsx
+
+Recommended fix
+
+Dashboard access should be based on Supabase Auth session and server-side authorization checks, not local JSON.
+
+2.3 High: Signup does not actually create a durable account until after payment flow complexity
+Why it is a problem
+
+The signup form validates fields, stores pendingRegistration, then redirects to booking. It does not call authService.signUp immediately. Account creation is mixed with payment success handling, local storage, and pending checkout state. 
+
+Severity: High
+Affected files: src/pages/Auth.tsx, src/pages/Booking.tsx, src/App.tsx
+
+Recommended fix
+
+Use a clear flow:
+
+Create Supabase user.
+
+Require email verification if enabled.
+
+Create student profile server-side.
+
+Start payment.
+
+Mark booking paid server-side after Paystack verification.
+
+2.4 High: Email verification is simulated/dead code
+Why it is a problem
+
+The code includes verification-code logic, but signup currently skips it and sets isVerified: true. Verification codes are generated in memory and logged to console. 
+
+Severity: High
+Affected files: src/lib/authService.ts, src/pages/Auth.tsx
+
+Recommended fix
+
+Remove simulated verification and rely on Supabase Auth email confirmation or implement a server-side OTP flow with expiry, rate limiting, and no console leakage.
+
+2.5 High: No role-based access control
+Why it is a problem
+
+There is no concept of admin, student, instructor, coordinator, or support staff roles. The dashboard is purely student-facing and client-gated. 
+
+Severity: High
+Affected files: src/pages/Dashboard.tsx, src/lib/authService.ts, supabase/schema.sql
+
+Recommended fix
+
+Add a profiles table with roles and enforce permissions through RLS and server-side checks.
+
+3. Backend Review
+3.1 Critical: Client controls payment amount
+Why it is a problem
+
+The frontend sends amount to /api/payment/initialize, and the backend validates only that it is a positive number. It does not check that the amount matches the selected course price. 
+
+A malicious user can submit:
+
+{
+  "amount": 1,
+  "courseId": "adv_executive"
+}
+and potentially pay ₦1 for a ₦350,000 course.
+
+Severity: Critical
+Affected files: src/lib/paymentService.ts, server.ts, src/data.ts
+
+Recommended fix
+
+Move course pricing to the server and calculate amount from courseId server-side.
+
+Sample fix
+
+const COURSE_PRICES: Record<string, number> = {
+  std_2w_beginners: 95000,
+  adv_executive: 350000,
+};
+
+const expectedAmount = COURSE_PRICES[courseId];
+if (!expectedAmount) {
+  return res.status(400).json({ status: false, message: "Invalid course." });
+}
+
+const paystackPayload = {
+  email,
+  amount: expectedAmount * 100,
+  reference,
+  metadata: { courseId, expectedAmount },
+};
+3.2 High: Payment verification endpoint can create bookings from arbitrary successful Paystack references
+Why it is a problem
+
+/api/payment/verify-status verifies a reference against Paystack and then creates a booking from Paystack metadata if successful. There is no local record proving the app initialized that transaction, no expected amount check, no expected course check, and no user ownership check. 
+
+Severity: High
+Affected files: server.ts
+
+Recommended fix
+
+Create a payment_intents table when initializing payment. Verification should require:
+
+Reference exists in payment_intents.
+
+Amount paid equals expected amount.
+
+Currency matches expected currency.
+
+Email/user matches authenticated user or pending registration.
+
+Reference status transitions atomically from initialized to paid.
+
+3.3 High: Supabase reads all bookings and webhook rows
+Why it is a problem
+
+getBookingsDb() does select("*") on all bookings and select("reference") on all webhook events. This will become slow and expensive as bookings grow. 
+
+Severity: High
+Affected files: server.ts
+
+Recommended fix
+
+Use targeted queries:
+
+const { data } = await supabase
+  .from("bookings")
+  .select("*")
+  .eq("reference", reference)
+  .maybeSingle();
+3.4 High: Webhook idempotency is not fully atomic
+Why it is a problem
+
+The webhook checks if a reference exists, verifies payment, mutates booking state in memory, inserts webhook marker, then saves bookings. Race conditions can occur if the callback and webhook process the same reference concurrently. 
+
+Severity: High
+Affected files: server.ts
+
+Recommended fix
+
+Use database transactions/RPC or make booking upsert idempotent and mark webhook event through unique constraints before expensive processing. Supabase Postgres functions are a good fit.
+
+3.5 Medium: Rate limiting will not work reliably on Vercel serverless
+Why it is a problem
+
+express-rate-limit uses in-memory state by default. In serverless, instances are ephemeral and horizontally scaled, so limits are inconsistent. 
+
+Severity: Medium
+Affected files: server.ts
+
+Recommended fix
+
+Use Upstash Redis, Vercel KV, Supabase-backed limits, or provider-level WAF.
+
+3.6 Medium: Error messages expose internal configuration details
+Why it is a problem
+
+The production persistence error tells clients exactly which variables are missing. This is useful in development but too detailed for public API responses. 
+
+Severity: Medium
+Affected files: server.ts
+
+Recommended fix
+
+Log detailed errors server-side; return generic public errors.
+
+4. Frontend Review
+4.1 Critical: Dashboard data is localStorage-backed
+Why it is a problem
+
+The dashboard reads booking data from falcon_last_booking_success in localStorage, which users can forge. 
+
+Severity: Critical
+Affected files: src/pages/Dashboard.tsx, src/App.tsx
+
+Recommended fix
+
+Fetch dashboard bookings from /api/me/bookings after server auth validation.
+
+4.2 High: Payment fallback to inline checkout weakens backend-controlled payment flow
+Why it is a problem
+
+If backend Paystack initialization fails, the frontend falls back to Paystack inline checkout. This means payment can start without the backend creating a payment intent/reference first. 
+
+Severity: High
+Affected files: src/pages/Booking.tsx, src/lib/paymentService.ts
+
+Recommended fix
+
+Remove inline fallback for production. If backend initialization fails, show a retry/support error.
+
+4.3 Medium: Form validation is inconsistent
+Why it is a problem
+
+Signup UI checks password length of 6, while authService.signUp requires 8 chars with uppercase, lowercase, and number. This creates inconsistent UX and late failures. 
+
+Severity: Medium
+Affected files: src/pages/Auth.tsx, src/lib/authService.ts
+
+Recommended fix
+
+Centralize validation in shared schema, e.g. Zod.
+
+4.4 Medium: No robust error recovery in payment callback flow
+Why it is a problem
+
+The callback handler logs verification failures but does not provide a strong user-facing recovery path or preserve enough state to resume safely. 
+
+Severity: Medium
+Affected files: src/App.tsx
+
+Recommended fix
+
+Create a dedicated /payment/return route with loading, success, failure, retry, and support contact states.
+
+4.5 Medium: Accessibility issues likely exist
+Why it is a problem
+
+The UI relies heavily on custom buttons, icons, motion, visual cards, alerts, and manual state. Some alerts use visual styling but may not use role="alert", and route changes are not announced. 
+
+Severity: Medium
+Affected files: src/App.tsx, src/pages/Auth.tsx, src/pages/Booking.tsx
+
+Recommended fix
+
+Add semantic routes, focus management, aria-live, role="alert", accessible modal/payment states, and automated accessibility tests.
+
+5. Database Design Review
+5.1 High: Missing user/profile relationship
+Why it is a problem
+
+The bookings table stores email but does not reference a profiles or auth.users record. This makes ownership, authorization, and joins fragile. 
+
+Severity: High
+Affected files: supabase/schema.sql
+
+Recommended fix
+
+Add profiles and foreign keys:
+
+create table public.profiles (
+  id uuid primary key references auth.users(id) on delete cascade,
+  full_name text not null,
+  phone text,
+  role text not null default 'student'
+);
+
+alter table public.bookings
+  add column user_id uuid references public.profiles(id);
+5.2 High: Missing payment intent table
+Why it is a problem
+
+There is no durable record of initialized payments before Paystack callback/webhook. This prevents secure reconciliation. 
+
+Severity: High
+Affected files: supabase/schema.sql, server.ts
+
+Recommended fix
+
+Add payment_intents:
+
+create table public.payment_intents (
+  reference text primary key,
+  user_id uuid references public.profiles(id),
+  course_id text not null,
+  expected_amount numeric not null,
+  currency text not null default 'NGN',
+  status text not null default 'initialized',
+  created_at timestamptz not null default now(),
+  paid_at timestamptz
+);
+5.3 Medium: Weak constraints
+Why it is a problem
+
+The schema does not constrain status, amount > 0, valid email shape, phone length, or course IDs. 
+
+Severity: Medium
+Affected files: supabase/schema.sql
+
+Recommended fix
+
+Add check constraints:
+
+alter table public.bookings
+  add constraint bookings_amount_positive check (amount >= 0),
+  add constraint bookings_status_valid check (status in ('pending', 'paid', 'failed', 'refunded'));
+5.4 Medium: RLS is enabled but no policies are defined
+Why it is a problem
+
+RLS is enabled, and service role bypasses RLS, but no explicit client policies exist for future dashboard reads. This is safe from direct browser reads now, but incomplete for a Supabase-backed app. 
+
+Severity: Medium
+Affected files: supabase/schema.sql
+
+Recommended fix
+
+Define policies only after adding user_id ownership.
+
+6. Security Audit
+6.1 SQL Injection
+Status: Mostly low risk currently.
+
+The backend uses Supabase client methods rather than raw SQL, which reduces SQL injection risk. 
+
+Remaining risk: If future raw SQL/RPC is added, validate inputs and use parameterization.
+
+6.2 XSS
+Severity: Medium
+
+React escapes text by default, but the app stores user-controlled values in localStorage and renders user names, booking data, and messages throughout the UI. If future code uses dangerouslySetInnerHTML, this becomes high risk. Current index.html also includes a custom script redefining window.fetch, which is unusual and increases attack surface/debug complexity. 
+
+Recommended fix
+
+Remove the window.fetch monkey patch unless there is a documented production need. Add CSP headers.
+
+6.3 CSRF
+Severity: Medium
+
+The payment API uses JSON endpoints and no cookie-based server session today, so CSRF is less direct. But once real server-side sessions/cookies are added, CSRF protection will be required. Current payment initialization accepts unauthenticated POSTs. 
+
+Recommended fix
+
+Use authenticated bearer tokens from Supabase, Origin checks, and CSRF tokens if cookie auth is introduced.
+
+6.4 Broken Authentication
+Severity: Critical
+
+LocalStorage sessions and local user DB are the main broken-auth issue. 
+
+6.5 Broken Access Control
+Severity: Critical
+
+Dashboard access is client-side only, and no backend route checks user ownership of bookings. 
+
+6.6 Sensitive Data Exposure
+Severity: High**
+
+Risks include:
+
+Client-side password hashes. 
+
+Possible plaintext password copied into dashboardUser during payment callback sync. 
+
+Local bookings_db.json exists in the repository file list and should not contain real production data. The audit command showed bookings_db.json is present in the repo file set.
+
+Recommended fix
+
+Remove password and auth data from localStorage. Ensure bookings_db.json is gitignored and scrubbed if it contains real data.
+
+6.7 Insecure File Uploads
+Status: Not applicable currently.
+
+I did not identify file upload features in the scanned files.
+
+6.8 Rate Limiting
+Severity: Medium**
+
+Payment and verification routes have in-memory rate limiting, but this is insufficient on Vercel/serverless. 
+
+6.9 API Security
+Severity: High**
+
+Problems:
+
+Payment initialize endpoint is unauthenticated.
+
+Client controls amount.
+
+No server-owned payment intent.
+
+Verification creates bookings without checking app-created reference ownership. 
+
+6.10 Dependency / Supply Chain
+Severity: Medium**
+
+There is no npm audit script, no lockfile audit in CI, and no test script. The scripts only define dev, build, start, clean, and lint. 
+
+Recommended fix
+
+Add CI checks:
+
+{
+  "scripts": {
+    "test": "vitest run",
+    "audit": "npm audit --audit-level=high",
+    "typecheck": "tsc --noEmit"
+  }
+}
+7. Code Quality Review
+7.1 High: TypeScript is not strict
+Why it is a problem
+
+tsconfig.json does not enable strict, and allowJs is enabled. This allows unsafe any patterns and hides production bugs. 
+
+Severity: High
+Affected files: tsconfig.json
+
+Recommended fix
+
+Enable:
+
+{
+  "compilerOptions": {
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true
+  }
+}
+7.2 Medium: Tests are not wired into package.json
+Why it is a problem
+
+There are test files, but no test script. They are also standalone assertion scripts, not integrated into a test runner. 
+
+Severity: Medium
+Affected files: package.json, tests/*
+
+Recommended fix
+
+Use Vitest or Node’s built-in test runner.
+
+7.3 Medium: README is stale and inaccurate
+Why it is a problem
+
+README says Falcon is for meteorological data, but the app is a driving school app. It also has a typo in the start command: pm run dev. 
+
+Severity: Medium
+Affected files: README.md
+
+Recommended fix
+
+Rewrite README to match Falcon Driving School, Supabase, Paystack, and Vercel setup.
+
+7.4 Medium: Duplicate payment and booking data models
+Why it is a problem
+
+Booking/payment data is represented in frontend localStorage, backend local JSON, Supabase tables, App callback sync, Dashboard cached reads, and Paystack metadata. This invites drift. 
+
+Severity: Medium
+Affected files: src/App.tsx, src/pages/Dashboard.tsx, server.ts, supabase/schema.sql
+
+Recommended fix
+
+Define one canonical backend booking model and fetch it through APIs.
+
+8. Performance Analysis
+8.1 High: Full-table reads for bookings/webhooks
+Why it is a problem
+
+getBookingsDb() loads all bookings and webhook references even when only one reference is needed. This is the main backend performance issue. 
+
+Severity: High
+
+Recommended fix
+
+Use reference-specific queries and indexes.
+
+8.2 Medium: Large frontend bundle
+Why it is a problem
+
+The build produced a Vite warning for a JS chunk larger than 500 KB. The built JS asset was 744.49 kB, gzip 211.89 kB. This can hurt mobile performance.
+
+Severity: Medium
+
+Recommended fix
+
+Code-split by route/page and lazy-load heavy components:
+
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+8.3 Medium: Repeated localStorage parsing during render
+Why it is a problem
+
+Dashboard calls getCachedBooking() during render, which reads and parses localStorage. Small now, but avoidable and architecturally wrong. 
+
+Severity: Medium
+
+Recommended fix
+
+Load once in useEffect, or better, fetch from server.
+
+9. DevOps & Deployment Review
+9.1 Medium: Vercel function may initialize Vite middleware depending on environment
+Why it is a problem
+
+createApp() conditionally creates Vite middleware when NODE_ENV !== "production". Vercel usually sets production envs, but preview/local serverless behavior should be tested carefully. 
+
+Severity: Medium
+Affected files: server.ts, api/index.ts, vercel.json
+
+Recommended fix
+
+Use explicit environment flags:
+
+const isLocalDev = process.env.NODE_ENV !== "production" && process.env.VERCEL !== "1";
+9.2 High: No monitoring/observability
+Why it is a problem
+
+The app uses console.log / console.error, but there is no structured logging, error tracking, metrics, or alerting for failed payments/webhooks. 
+
+Severity: High
+
+Recommended fix
+
+Add Sentry/Logtail/Axiom, structured request IDs, and alerting for payment verification failures.
+
+9.3 High: No backup/recovery strategy documented
+Why it is a problem
+
+Supabase is introduced for production persistence, but there is no documented backup, migration, or restore procedure. 
+
+Severity: High
+
+Recommended fix
+
+Document Supabase backups, migration process, and disaster recovery.
+
+9.4 Medium: Secrets guidance improved but still risky fallback names remain
+Why it is a problem
+
+Backend accepts VITE_PAYSTACK_SECRET_KEY and VITE_PAYSTACK_ANON_KEY as secret sources. Any VITE_* variable is intended for browser exposure in Vite, so secret names should not use VITE_. 
+
+Severity: Medium
+Affected files: server.ts, .env.example
+
+Recommended fix
+
+Only accept PAYSTACK_SECRET_KEY server-side.
+
+10. User Experience Audit
+10.1 High: Signup/payment flow is confusing
+Why it is a problem
+
+Signup says “Almost done” and moves to booking, but no account is actually created until later in payment flow. Users may think they have an account before payment. 
+
+Severity: High
+
+Recommended fix
+
+Separate:
+
+Create account.
+
+Confirm email.
+
+Choose course.
+
+Pay.
+
+Show dashboard.
+
+10.2 Medium: Payment auto-start can surprise users
+Why it is a problem
+
+After submitting booking details, an effect automatically starts Paystack checkout. Users may expect a clear review/confirm step before payment. 
+
+Severity: Medium
+
+Recommended fix
+
+Show a review page with explicit “Pay Now” button.
+
+10.3 Medium: Dashboard may show fake/cached payment status
+Why it is a problem
+
+Dashboard reads cached localStorage booking status, so it can show “Verified via Paystack checkout” based on client data. 
+
+Severity: Medium
+
+Recommended fix
+
+Show only server-confirmed booking/payment state.
+
+11. Testing Review
+Current Testing Status
+There are two standalone tests:
+
+Payment idempotency logic test. 
+
+Paystack env resolution test. 
+
+However, package.json has no test script, so they are not part of a standard workflow. 
+
+Missing Tests
+Critical missing tests
+Auth/session tampering tests.
+
+Payment amount tampering tests.
+
+Paystack webhook signature verification tests.
+
+Payment callback + webhook race/idempotency tests.
+
+Supabase repository integration tests.
+
+Route authorization tests.
+
+E2E payment return flow tests.
+
+Recommended test stack
+Unit: Vitest.
+
+API integration: Supertest.
+
+E2E: Playwright.
+
+Security regression: custom API abuse tests.
+
+Accessibility: Playwright Axe or @axe-core/react.
+
+12. Production Readiness Assessment
+Production Blockers
+Blocker 1: Client-side authentication/session storage
+Severity: Critical
+Affected files: src/lib/authService.ts, src/App.tsx, src/pages/Dashboard.tsx
+Fix: Move auth fully to Supabase Auth and server-side authorization.
+
+Blocker 2: Payment amount tampering
+Severity: Critical
+Affected files: server.ts, src/lib/paymentService.ts, src/pages/Booking.tsx
+Fix: Server must calculate price from course ID and persist payment intent before sending user to Paystack.
+
+Blocker 3: No server-owned payment intent lifecycle
+Severity: High
+Affected files: server.ts, supabase/schema.sql
+Fix: Add payment_intents table and verify callback/webhook against it.
+
+Blocker 4: Dashboard trusts localStorage
+Severity: Critical
+Affected files: src/pages/Dashboard.tsx, src/App.tsx
+Fix: Fetch dashboard state from authenticated backend APIs.
+
+Blocker 5: Supabase schema lacks profiles, ownership, and constraints
+Severity: High
+Affected files: supabase/schema.sql
+Fix: Add profiles, user ownership, constraints, payment intents, and RLS policies.
+
+Blocker 6: Tests are insufficient and not automated
+Severity: High
+Affected files: package.json, tests/*
+Fix: Add automated test script and coverage for auth/payment/security flows.
+
+Prioritized Action Plan
+Priority 0 — Stop-ship security fixes
+Replace localStorage auth with Supabase Auth only.
+
+Remove client-side password hashes and fake local user DB.
+
+Server-calculate payment amounts from a server-owned course table/catalog.
+
+Add payment_intents and require initialized references before verification.
+
+Replace localStorage dashboard data with authenticated server API reads.
+
+Priority 1 — Production backend hardening
+Split server.ts into routes/services/repositories.
+
+Replace full-table Supabase reads with targeted queries.
+
+Make webhook/callback processing idempotent through database uniqueness/transactions.
+
+Remove VITE_* fallback secret names from server code.
+
+Add generic public API errors and structured internal logs.
+
+Priority 2 — Data model
+Add profiles table linked to auth.users.
+
+Add courses or server-side static course catalog.
+
+Add payment_intents.
+
+Add constraints for statuses, amounts, and required fields.
+
+Add RLS policies once ownership exists.
+
+Priority 3 — Frontend/UX
+Adopt React Router.
+
+Add explicit signup → verify → book → review → pay → dashboard flow.
+
+Add dedicated payment return page.
+
+Add loading, retry, and support states.
+
+Improve accessibility.
+
+Priority 4 — DevOps/QA
+Add test runner and CI.
+
+Add npm audit or dependency scanning.
+
+Add Sentry/logging/monitoring.
+
+Add Supabase migration workflow.
+
+Document backup/restore.
+
+Step-by-Step Roadmap to Production Grade
+Phase 1: Security foundation
+Implement Supabase Auth as the only auth source.
+
+Remove localStorage user database and password hashing.
+
+Add server auth middleware to validate Supabase JWTs.
+
+Add protected backend routes for user bookings.
+
+Phase 2: Payment integrity
+Add payment_intents.
+
+Move course price calculation to backend.
+
+Initialize Paystack only after creating a payment intent.
+
+Verify callback/webhook against payment intent.
+
+Make callback/webhook idempotent and race-safe.
+
+Phase 3: Database maturity
+Add profiles.
+
+Add courses or immutable server-side course catalog.
+
+Add constraints/indexes.
+
+Add RLS policies.
+
+Add migrations instead of one-off SQL only.
+
+Phase 4: Frontend refactor
+Introduce React Router.
+
+Replace currentPage with real routes.
+
+Replace local dashboard cache with API calls.
+
+Add payment review and return pages.
+
+Improve accessibility.
+
+Phase 5: QA and DevOps
+Add Vitest + Supertest + Playwright.
+
+Add CI for lint/build/test/audit.
+
+Add monitoring and structured logs.
+
+Add deployment checklist.
+
+Add backup/recovery documentation.
+
+Final Recommendation
+Do not push this application to production yet.
+
+The app is close enough to be used as a prototype or controlled demo, but production payment flows require stronger guarantees. The minimum safe production path is:
+
+Supabase Auth only.
+
+Server-owned course pricing.
+
+Payment intents.
+
+Authenticated dashboard API.
+
+Automated tests for payment/auth abuse cases.
+
+Once you approve, I recommend implementing the fixes in this order:
+
+Payment amount tampering fix + payment intents.
+
+Supabase Auth cleanup and removal of local user DB.
+
+Dashboard server API.
+
+Schema constraints/RLS.
+
+Tests and CI.
