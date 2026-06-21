@@ -1,4 +1,4 @@
-
+dr
 Before making any changes, take time to fully understand the application, its architecture, features, user flows, frontend, backend, database structure, and overall business logic.
 
 Perform a comprehensive review of the entire project and identify weaknesses, bottlenecks, bugs, security concerns, scalability issues, code quality problems, UI/UX gaps, and architectural limitations.
