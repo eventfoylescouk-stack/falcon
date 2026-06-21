@@ -1,4 +1,4 @@
-https://chatgpt.com/s/cd_6a3827f539d48191a6936a6053edd9d6
+EGWUpatricia1988
 
 Before making any changes, take time to fully understand the application, its architecture, features, user flows, frontend, backend, database structure, and overall business logic.
 
