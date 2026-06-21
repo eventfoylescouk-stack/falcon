@@ -134,9 +134,8 @@ function saveDb(db: BookingsDb) {
   }
 }
 
-async function startServer() {
+export async function createApp() {
   const app = express();
-  const PORT = 3000;
 
   // Rate limiting for payment endpoints to prevent abuse
   const paymentLimiter = rateLimit({
@@ -606,9 +605,18 @@ async function startServer() {
     });
   }
 
+  return app;
+}
+
+export async function startServer() {
+  const app = await createApp();
+  const PORT = Number(process.env.PORT || 3000);
+
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server starting and running on full-stack PORT ${PORT}`);
   });
 }
 
-startServer();
+if (process.env.VERCEL !== "1") {
+  startServer();
+}
