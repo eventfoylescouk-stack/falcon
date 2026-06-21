@@ -1,3 +1,5 @@
+https://chatgpt.com/s/cd_6a3827f539d48191a6936a6053edd9d6
+
 Before making any changes, take time to fully understand the application, its architecture, features, user flows, frontend, backend, database structure, and overall business logic.
 
 Perform a comprehensive review of the entire project and identify weaknesses, bottlenecks, bugs, security concerns, scalability issues, code quality problems, UI/UX gaps, and architectural limitations.
