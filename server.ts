@@ -6,6 +6,39 @@ import crypto from "crypto";
 import { createServer as createViteServer } from "vite";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import rateLimit from "express-rate-limit";
+import { COURSES } from "./src/data.ts";
+
+
+const SERVER_COURSE_CATALOG = new Map(
+  COURSES.map(course => [course.id, {
+    id: course.id,
+    name: course.name,
+    price: course.price
+  }])
+);
+
+export function getServerCoursePrice(courseId: string): number | null {
+  const course = SERVER_COURSE_CATALOG.get(courseId.trim());
+  return course?.price ?? null;
+}
+
+export function validatePaymentAmountForCourse(courseId: string, submittedAmount: number) {
+  const expectedAmount = getServerCoursePrice(courseId);
+
+  if (expectedAmount === null) {
+    return { valid: false, message: "Invalid course selected." };
+  }
+
+  if (submittedAmount !== expectedAmount) {
+    return {
+      valid: false,
+      message: "Submitted amount does not match the selected course price.",
+      expectedAmount
+    };
+  }
+
+  return { valid: true, expectedAmount };
+}
 
 // Define server-side database path for verified transactions
 const DB_FILE = path.join(process.cwd(), "bookings_db.json");
@@ -269,6 +302,12 @@ export async function createApp() {
       return res.status(400).json({ status: false, message: "Course ID is required." });
     }
 
+    const courseAmountValidation = validatePaymentAmountForCourse(req.body.courseId, req.body.amount);
+    if (!courseAmountValidation.valid) {
+      return res.status(400).json({ status: false, message: courseAmountValidation.message });
+    }
+    req.body.amount = courseAmountValidation.expectedAmount;
+
     if (!schedule || typeof schedule !== 'string' || schedule.trim().length === 0) {
       return res.status(400).json({ status: false, message: "Schedule is required." });
     }
@@ -304,8 +343,6 @@ export async function createApp() {
   const getPaystackSecretKey = () => {
     const key = (
       process.env.PAYSTACK_SECRET_KEY ||
-      process.env.VITE_PAYSTACK_SECRET_KEY ||
-      process.env.VITE_PAYSTACK_ANON_KEY ||
       ""
     ).trim();
 
@@ -357,7 +394,7 @@ export async function createApp() {
 
       const paystackPayload = {
         email: email.toLowerCase().trim(),
-        amount: Math.round(amount * 100), // convert Naira/USD to Kobo/cents
+        amount: Math.round(amount * 100), // server-validated course price converted to kobo
         reference,
         callback_url: callbackUrl,
         metadata: {
@@ -366,7 +403,8 @@ export async function createApp() {
           fullName,
           phone,
           notes: notes || "",
-          amountNaira: amount
+          amountNaira: amount,
+          courseName: SERVER_COURSE_CATALOG.get(courseId)?.name || courseId
         }
       };
 
@@ -472,6 +510,15 @@ export async function createApp() {
       const pmData = resData.data;
       const metadata = pmData.metadata;
       const amountNaira = pmData.amount / 100;
+      const expectedAmount = getServerCoursePrice(String(metadata?.courseId || ""));
+      if (expectedAmount === null || amountNaira !== expectedAmount) {
+        console.error(`[Paystack Callback] Amount/course mismatch for ${reference}:`, {
+          courseId: metadata?.courseId,
+          amountNaira,
+          expectedAmount
+        });
+        return res.redirect(`${cleanHost}/?payment_status=failed&reference=${reference}&reason=${encodeURIComponent("Payment amount did not match the selected course.")}`);
+      }
 
       const db = await getBookingsDb();
 
@@ -571,6 +618,14 @@ export async function createApp() {
       const metadata = pmData.metadata || {};
       const amountNaira = Number(pmData.amount || 0) / 100;
       const customerEmail = (pmData.customer?.email || metadata.email || "").toLowerCase().trim();
+      const expectedAmount = getServerCoursePrice(String(metadata.courseId || metadata.course_id || ""));
+      if (expectedAmount === null || amountNaira !== expectedAmount) {
+        return res.status(400).json({
+          status: false,
+          message: "Payment amount did not match the selected course."
+        });
+      }
+
       const db = await getBookingsDb();
       db.webhookReferences = db.webhookReferences || [];
 
@@ -648,6 +703,14 @@ export async function createApp() {
       const metadata = verifyJson.data.metadata || transaction.metadata || {};
       const amountNaira = Number(verifyJson.data.amount || transaction.amount || 0) / 100;
       const customerEmail = (verifyJson.data.customer?.email || transaction.customer?.email || "").toLowerCase().trim();
+      const expectedAmount = getServerCoursePrice(String(metadata.courseId || metadata.course_id || ""));
+      if (expectedAmount === null || amountNaira !== expectedAmount) {
+        return res.status(202).json({
+          status: true,
+          verified: false,
+          message: "Webhook accepted; payment amount did not match the selected course."
+        });
+      }
       let booking = db.bookings.find(b => b.reference === reference);
 
       if (!booking) {
@@ -713,6 +776,6 @@ export async function startServer() {
   });
 }
 
-if (process.env.VERCEL !== "1") {
+if (process.env.NODE_ENV !== "test" && process.env.VERCEL !== "1") {
   startServer();
 }
