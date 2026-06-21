@@ -6,7 +6,7 @@ import crypto from "crypto";
 import { createServer as createViteServer } from "vite";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import rateLimit from "express-rate-limit";
-import { COURSES } from "./src/data.ts";
+import { COURSES } from "./src/data";
 
 
 const SERVER_COURSE_CATALOG = new Map(
