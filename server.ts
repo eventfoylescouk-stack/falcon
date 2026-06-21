@@ -10,6 +10,14 @@ import rateLimit from "express-rate-limit";
 // Define server-side database path for verified transactions
 const DB_FILE = path.join(process.cwd(), "bookings_db.json");
 
+function isProductionRuntime() {
+  return process.env.NODE_ENV === "production" || process.env.VERCEL === "1";
+}
+
+function allowLocalJsonDb() {
+  return !isProductionRuntime() || process.env.ALLOW_LOCAL_JSON_DB === "true";
+}
+
 function getServerSupabase(): SupabaseClient | null {
   const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
@@ -21,6 +29,12 @@ function getServerSupabase(): SupabaseClient | null {
   return createClient(supabaseUrl, supabaseKey, {
     auth: { persistSession: false, autoRefreshToken: false }
   });
+}
+
+function assertProductionPersistence(supabase: SupabaseClient | null) {
+  if (!supabase && !allowLocalJsonDb()) {
+    throw new Error("Supabase persistence is required in production. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in Vercel, or explicitly set ALLOW_LOCAL_JSON_DB=true only for non-production testing.");
+  }
 }
 
 function toBookingRow(booking: VerifiedBooking) {
@@ -56,14 +70,15 @@ function getAppBaseUrl(req?: express.Request) {
 
 async function upsertPaidBooking(booking: VerifiedBooking) {
   const supabase = getServerSupabase();
-  const db = getDb();
+  assertProductionPersistence(supabase);
 
   if (!supabase) {
+    const db = getLocalDb();
     const existing = db.bookings.find(b => b.reference === booking.reference);
     if (existing) Object.assign(existing, booking, { paidAt: existing.paidAt || booking.paidAt });
     else db.bookings.push(booking);
     if (!db.verifiedReferences.includes(booking.reference)) db.verifiedReferences.push(booking.reference);
-    saveDb(db);
+    saveLocalDb(db);
     return;
   }
 
@@ -72,23 +87,99 @@ async function upsertPaidBooking(booking: VerifiedBooking) {
     .upsert(toBookingRow(booking), { onConflict: "reference" });
 
   if (error) {
-    console.warn(`Supabase booking upsert failed: ${error.message}. Falling back to local booking persistence.`);
-    const existing = db.bookings.find(b => b.reference === booking.reference);
-    if (existing) Object.assign(existing, booking, { paidAt: existing.paidAt || booking.paidAt });
-    else db.bookings.push(booking);
-    if (!db.verifiedReferences.includes(booking.reference)) db.verifiedReferences.push(booking.reference);
-    saveDb(db);
+    throw new Error(`Supabase booking upsert failed: ${error.message}`);
+  }
+}
+
+function fromBookingRow(row: any): VerifiedBooking {
+  return {
+    id: row.id,
+    fullName: row.full_name,
+    phone: row.phone,
+    email: row.email,
+    courseId: row.course_id,
+    schedule: row.schedule,
+    notes: row.notes || "",
+    reference: row.reference,
+    amount: Number(row.amount || 0),
+    status: row.status,
+    createdAt: row.created_at,
+    paidAt: row.paid_at || undefined
+  };
+}
+
+async function getBookingsDb(): Promise<BookingsDb> {
+  const supabase = getServerSupabase();
+  assertProductionPersistence(supabase);
+
+  if (!supabase) {
+    return getLocalDb();
+  }
+
+  const { data: bookings, error: bookingsError } = await supabase
+    .from("bookings")
+    .select("*");
+
+  if (bookingsError) {
+    throw new Error(`Supabase bookings read failed: ${bookingsError.message}`);
+  }
+
+  const { data: webhookRows, error: webhookError } = await supabase
+    .from("paystack_webhook_events")
+    .select("reference");
+
+  if (webhookError) {
+    throw new Error(`Supabase webhook read failed: ${webhookError.message}`);
+  }
+
+  const mappedBookings = (bookings || []).map(fromBookingRow);
+  return {
+    bookings: mappedBookings,
+    verifiedReferences: mappedBookings.map(booking => booking.reference),
+    webhookReferences: (webhookRows || []).map(row => row.reference)
+  };
+}
+
+async function saveBookingsDb(db: BookingsDb) {
+  const supabase = getServerSupabase();
+  assertProductionPersistence(supabase);
+
+  if (!supabase) {
+    saveLocalDb(db);
     return;
+  }
+
+  if (db.bookings.length > 0) {
+    const { error } = await supabase
+      .from("bookings")
+      .upsert(db.bookings.map(toBookingRow), { onConflict: "reference" });
+
+    if (error) {
+      throw new Error(`Supabase bookings save failed: ${error.message}`);
+    }
   }
 }
 
 async function markWebhookProcessed(reference: string): Promise<boolean> {
-  const db = getDb();
-  db.webhookReferences = db.webhookReferences || [];
-  if (db.webhookReferences.includes(reference)) return false;
-  db.webhookReferences.push(reference);
-  saveDb(db);
-  return true;
+  const supabase = getServerSupabase();
+  assertProductionPersistence(supabase);
+
+  if (!supabase) {
+    const db = getLocalDb();
+    db.webhookReferences = db.webhookReferences || [];
+    if (db.webhookReferences.includes(reference)) return false;
+    db.webhookReferences.push(reference);
+    saveLocalDb(db);
+    return true;
+  }
+
+  const { error } = await supabase
+    .from("paystack_webhook_events")
+    .insert({ reference });
+
+  if (!error) return true;
+  if (error.code === "23505") return false;
+  throw new Error(`Supabase webhook marker failed: ${error.message}`);
 }
 
 interface VerifiedBooking {
@@ -113,7 +204,7 @@ interface BookingsDb {
 }
 
 // Read database helper
-function getDb(): BookingsDb {
+function getLocalDb(): BookingsDb {
   try {
     if (fs.existsSync(DB_FILE)) {
       const data = fs.readFileSync(DB_FILE, "utf-8");
@@ -126,7 +217,7 @@ function getDb(): BookingsDb {
 }
 
 // Write database helper
-function saveDb(db: BookingsDb) {
+function saveLocalDb(db: BookingsDb) {
   try {
     fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), "utf-8");
   } catch (err) {
@@ -134,9 +225,8 @@ function saveDb(db: BookingsDb) {
   }
 }
 
-async function startServer() {
+export async function createApp() {
   const app = express();
-  const PORT = 3000;
 
   // Rate limiting for payment endpoints to prevent abuse
   const paymentLimiter = rateLimit({
@@ -334,7 +424,7 @@ async function startServer() {
       // Dev mode: Auto-approve all mock references for testing
       if (!secretKey && reference.startsWith("FALCON_DEV_")) {
         console.log(`[DEV MODE] Auto-approving mock reference: ${reference}`);
-        const db = getDb();
+        const db = await getBookingsDb();
         
         // Store as mock verified booking
         if (!db.verifiedReferences.includes(reference)) {
@@ -383,7 +473,7 @@ async function startServer() {
       const metadata = pmData.metadata;
       const amountNaira = pmData.amount / 100;
 
-      const db = getDb();
+      const db = await getBookingsDb();
 
       // Check if reference already processed to prevent duplications
       if (!db.verifiedReferences.includes(reference)) {
@@ -430,7 +520,7 @@ async function startServer() {
 
       // Dev mode: Auto-verify mock references
       if (!secretKey && reference.startsWith("FALCON_DEV_")) {
-        const db = getDb();
+        const db = await getBookingsDb();
         let booking = db.bookings.find(b => b.reference === reference);
         
         if (!booking) {
@@ -449,6 +539,7 @@ async function startServer() {
             paidAt: new Date().toISOString()
           };
           db.bookings.push(booking);
+          await saveBookingsDb(db);
         }
 
         return res.json({
@@ -480,7 +571,7 @@ async function startServer() {
       const metadata = pmData.metadata || {};
       const amountNaira = Number(pmData.amount || 0) / 100;
       const customerEmail = (pmData.customer?.email || metadata.email || "").toLowerCase().trim();
-      const db = getDb();
+      const db = await getBookingsDb();
       db.webhookReferences = db.webhookReferences || [];
 
       let booking = db.bookings.find(b => b.reference === reference);
@@ -509,7 +600,7 @@ async function startServer() {
         booking.paidAt = booking.paidAt || new Date().toISOString();
       }
 
-      saveDb(db);
+      await saveBookingsDb(db);
       return res.json({ status: true, verified: true, booking });
 
     } catch (err: any) {
@@ -539,7 +630,7 @@ async function startServer() {
         return res.status(400).json({ status: false, message: "Missing transaction reference." });
       }
 
-      const db = getDb();
+      const db = await getBookingsDb();
       db.webhookReferences = db.webhookReferences || [];
       if (db.webhookReferences.includes(reference)) {
         return res.json({ status: true, duplicate: true, message: "Webhook reference already processed." });
@@ -580,9 +671,13 @@ async function startServer() {
         booking.paidAt = booking.paidAt || new Date().toISOString();
       }
 
+      const isNewWebhook = await markWebhookProcessed(reference);
+      if (!isNewWebhook) {
+        return res.json({ status: true, duplicate: true, message: "Webhook reference already processed." });
+      }
+
       if (!db.verifiedReferences.includes(reference)) db.verifiedReferences.push(reference);
-      db.webhookReferences.push(reference);
-      saveDb(db);
+      await saveBookingsDb(db);
 
       return res.json({ status: true, processed: true });
     } catch (err: any) {
@@ -606,9 +701,18 @@ async function startServer() {
     });
   }
 
+  return app;
+}
+
+export async function startServer() {
+  const app = await createApp();
+  const PORT = Number(process.env.PORT || 3000);
+
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server starting and running on full-stack PORT ${PORT}`);
   });
 }
 
-startServer();
+if (process.env.VERCEL !== "1") {
+  startServer();
+}
