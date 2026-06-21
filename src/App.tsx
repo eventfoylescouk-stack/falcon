@@ -22,7 +22,7 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState<string>('home');
   const [selectedCourseId, setSelectedCourseId] = useState<string>('std_2w_beginners');
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
-  const [pendingRegistration, setPendingRegistration] = useState<{ fullName: string; phone: string; email: string; password: string } | null>(null);
+  const [pendingRegistration, setPendingRegistration] = useState<{ fullName: string; phone: string; email: string } | null>(null);
   const [authViewMode, setAuthViewMode] = useState<'signin' | 'signup'>('signin');
 
   // Route security guard: Require user registration/accounting before booking or dashboard
@@ -93,36 +93,20 @@ export default function App() {
             const cleanUrl = window.location.pathname;
             window.history.replaceState({}, document.title, cleanUrl);
 
-            // Fetch the user session or mock profile matching this email if logged out
-            const allUsers = JSON.parse(localStorage.getItem('falcon_auth_users') || '[]');
-            const pendingCheckout = JSON.parse(localStorage.getItem('falcon_pending_paid_signup') || 'null');
-            const pendingProfile = pendingCheckout?.pendingRegistration;
-            const bookingEmail = resJson.booking.email.toLowerCase();
-            const matchedUser = allUsers.find((u: any) => u.email.toLowerCase() === bookingEmail);
-            const dashboardUser = matchedUser || {
-              id: 'usr_' + Date.now(),
-              fullName: pendingProfile?.fullName || resJson.booking.fullName,
-              phone: pendingProfile?.phone || resJson.booking.phone,
-              email: pendingProfile?.email || resJson.booking.email,
-              isVerified: true,
-              createdAt: new Date().toISOString(),
-              ...(pendingProfile?.password ? { password: pendingProfile.password } : {})
-            };
-
-            if (!matchedUser) {
-              allUsers.push(dashboardUser);
-              localStorage.setItem('falcon_auth_users', JSON.stringify(allUsers));
-            }
-
-            localStorage.setItem('falcon_auth_session', JSON.stringify(dashboardUser));
+            const authenticatedUser = authService.getCurrentUser();
             localStorage.removeItem('falcon_pending_paid_signup');
-            setCurrentUser(dashboardUser);
 
-            // Redirect smoothly to the dashboard!
-            // Use setTimeout to ensure state updates are processed before navigation
-            setTimeout(() => {
-              setCurrentPage('dashboard');
-            }, 100);
+            if (authenticatedUser && authenticatedUser.email.toLowerCase() === resJson.booking.email.toLowerCase()) {
+              setCurrentUser(authenticatedUser);
+              setTimeout(() => {
+                setCurrentPage('dashboard');
+              }, 100);
+            } else {
+              setAuthViewMode('signin');
+              setTimeout(() => {
+                setCurrentPage('auth');
+              }, 100);
+            }
           } else {
             console.warn("[App] Could not verify reference against backend records:", resJson);
           }

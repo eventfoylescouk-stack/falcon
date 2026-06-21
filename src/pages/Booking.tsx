@@ -11,8 +11,8 @@ interface BookingProps {
   selectedCourseId: string;
   setSelectedCourseId: (courseId: string) => void;
   currentUser?: UserProfile | null;
-  pendingRegistration: { fullName: string; phone: string; email: string; password: string } | null;
-  setPendingRegistration: React.Dispatch<React.SetStateAction<{ fullName: string; phone: string; email: string; password: string } | null>>;
+  pendingRegistration: { fullName: string; phone: string; email: string } | null;
+  setPendingRegistration: React.Dispatch<React.SetStateAction<{ fullName: string; phone: string; email: string } | null>>;
   onLoginSuccess: (user: UserProfile) => void;
 }
 
@@ -151,23 +151,11 @@ export function Booking({ setCurrentPage, selectedCourseId, setSelectedCourseId,
               throw new Error('Payment has not been verified successfully.');
             }
 
-            let userToPersist = currentUser;
-            if (pendingRegistration) {
-              userToPersist = await authService.signUp(
-                pendingRegistration.fullName,
-                pendingRegistration.phone,
-                pendingRegistration.email,
-                pendingRegistration.password
-              );
-              if (onLoginSuccess) {
-                onLoginSuccess(userToPersist);
-              }
-              setPendingRegistration(null);
-            }
-
+            const userToPersist = currentUser || authService.getCurrentUser();
             if (!userToPersist) {
-              throw new Error('No student registration or authenticated user available after payment. Please sign in again.');
+              throw new Error('No authenticated student session available after payment. Please confirm your email and sign in again.');
             }
+            setPendingRegistration(null);
 
             const bookingRecord = {
               ...submittedData!,

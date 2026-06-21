@@ -1,4 +1,4 @@
-import { Course, Testimonial, GalleryItem } from './types';
+import type { Course, Testimonial, GalleryItem } from './types';
 
 // Let's use the actual file names for the beautiful generated assets
 export const HERO_IMAGE_URL = '/src/assets/images/falcon_hero_banner_1781780038589.jpg';
